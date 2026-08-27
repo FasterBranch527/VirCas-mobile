@@ -47,8 +47,8 @@ import kotlinx.coroutines.delay
 @Composable
 fun HorseRacingGameScreen(viewModel: AppViewModel, onBack: () -> Unit) {
     val balance by viewModel.balance.collectAsState()
-    val engine = remember { HorseRacingEngine(viewModel.randomProvider()) }
-    var race by remember { mutableStateOf(engine.generateRace(count = 8)) }
+    val catalogEngine = remember { HorseRacingEngine(viewModel.randomProvider()) }
+    var race by remember { mutableStateOf(catalogEngine.generateRace(count = 8)) }
     var selectedId by remember { mutableStateOf(race.horses.first().id) }
     var stake by remember { mutableStateOf("1000") }
     var wager by remember { mutableStateOf<ActiveWager?>(null) }
@@ -129,7 +129,8 @@ fun HorseRacingGameScreen(viewModel: AppViewModel, onBack: () -> Unit) {
                     if (started == null) message = "Could not start: check stake and balance."
                     else {
                         wager = started
-                        result = engine.simulate(race)
+                        // beginWager has already installed the provider derived from the round seed.
+                        result = HorseRacingEngine(viewModel.randomProvider()).simulate(race)
                         frame = 0
                         running = true
                         message = "RACE LIVE"
@@ -140,7 +141,7 @@ fun HorseRacingGameScreen(viewModel: AppViewModel, onBack: () -> Unit) {
 
         if (!running && result != null && wager == null) {
             OutlinedButton(onClick = {
-                race = engine.generateRace(id = "race_${System.currentTimeMillis()}", count = 8)
+                race = catalogEngine.generateRace(id = "race_${System.currentTimeMillis()}", count = 8)
                 selectedId = race.horses.first().id
                 result = null
                 frame = 0
