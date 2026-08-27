@@ -7,6 +7,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.animateScrollBy
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -23,11 +24,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import com.vircas.mobile.game.engines.*
 import kotlinx.coroutines.delay
 
@@ -44,11 +49,16 @@ fun AnimatedCasesHubScreen(viewModel: AppViewModel, onBack: () -> Unit) {
     var selected by remember { mutableIntStateOf(0) }
     var opening by remember { mutableStateOf<CaseOpeningResult?>(null) }
     var reveal by remember { mutableStateOf<CaseItemTemplate?>(null) }
+    var inspectItem by remember { mutableStateOf<CaseItemTemplate?>(null) }
     var busy by remember { mutableStateOf(false) }
-    var status by remember { mutableStateOf("Choose a cache. The result is locked before the reel moves.") }
+    var status by remember { mutableStateOf("Choose a cache. Every opening generates a fresh reel from a new round seed.") }
 
     val definition = CasesEngine.All[selected]
     val displayedReel = opening?.reel ?: previewReel(definition.items)
+
+    inspectItem?.let { item ->
+        CaseInspectDialog(item = item, onDismiss = { inspectItem = null })
+    }
 
     LaunchedEffect(opening) {
         val result = opening ?: return@LaunchedEffect
@@ -66,7 +76,6 @@ fun AnimatedCasesHubScreen(viewModel: AppViewModel, onBack: () -> Unit) {
             pad + result.winningIndex * (card + gap) + card / 2f - viewport / 2f + bias
         ).coerceAtLeast(0f)
 
-        // One long CS-style reel: hard initial velocity, then a very long viscous slowdown.
         reelState.animateScrollBy(
             target,
             tween(
@@ -75,7 +84,6 @@ fun AnimatedCasesHubScreen(viewModel: AppViewModel, onBack: () -> Unit) {
             )
         )
 
-        // Tiny mechanical settle keeps the final stop from looking digitally perfect.
         val settle = with(density) { 5.dp.toPx() }
         reelState.animateScrollBy(-settle, tween(120, easing = LinearEasing))
         reelState.animateScrollBy(settle, tween(260, easing = FastOutSlowInEasing))
@@ -93,7 +101,7 @@ fun AnimatedCasesHubScreen(viewModel: AppViewModel, onBack: () -> Unit) {
         contentPadding = PaddingValues(18.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        item { ShellBackHeader("Case Drop", "Long reel · PNG items · local-only virtual inventory", onBack) }
+        item { ShellBackHeader("Case Drop", "Fresh reel every open · inspectable PNG items · local-only inventory", onBack) }
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
@@ -147,7 +155,7 @@ fun AnimatedCasesHubScreen(viewModel: AppViewModel, onBack: () -> Unit) {
             }
         }
 
-        item { SectionHeader("Drop reel", "The gold line is the winning position") }
+        item { SectionHeader("Drop reel", "A new 80-item reel is generated for every opening") }
         item { CaseReel(displayedReel, opening?.winningIndex, busy, reelState) }
 
         item {
@@ -156,7 +164,9 @@ fun AnimatedCasesHubScreen(viewModel: AppViewModel, onBack: () -> Unit) {
                 onClick = {
                     busy = true
                     reveal = null
-                    status = "LOCKING OUTCOME…"
+                    inspectItem = null
+                    opening = null
+                    status = "GENERATING FRESH REEL…"
                     viewModel.openCase(definition) { result ->
                         if (result == null) {
                             busy = false
@@ -179,7 +189,9 @@ fun AnimatedCasesHubScreen(viewModel: AppViewModel, onBack: () -> Unit) {
         }
 
         item {
-            reveal?.let { WinnerCard(it) } ?: Surface(
+            reveal?.let { item ->
+                WinnerCard(item = item, onInspect = { inspectItem = item })
+            } ?: Surface(
                 shape = RoundedCornerShape(18.dp),
                 color = ShellPanel,
                 border = BorderStroke(1.dp, Color.White.copy(alpha = .05f))
@@ -236,7 +248,6 @@ private fun CaseReel(
                 .background(Brush.horizontalGradient(listOf(Color.Transparent, Color(0xFF070A10))))
         )
 
-        // CS-style fixed winning marker. The item reel moves below it.
         Box(Modifier.align(Alignment.Center).fillMaxHeight().width(2.dp).background(ShellGold))
         Surface(
             Modifier.align(Alignment.TopCenter).padding(top = 2.dp),
@@ -291,32 +302,137 @@ private fun ReelItem(item: CaseItemTemplate, winner: Boolean) {
 }
 
 @Composable
-private fun WinnerCard(item: CaseItemTemplate) {
+private fun WinnerCard(item: CaseItemTemplate, onInspect: () -> Unit) {
     val rarity = rarityColor(item.rarity)
     Surface(
         shape = RoundedCornerShape(24.dp),
         color = rarity.copy(alpha = .11f),
         border = BorderStroke(1.dp, rarity.copy(alpha = .48f))
     ) {
-        Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Surface(shape = RoundedCornerShape(18.dp), color = Color(0xFF0A0F18)) {
-                CaseItemArtwork(item.previewKey, Modifier.width(112.dp).height(72.dp).padding(6.dp))
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(shape = RoundedCornerShape(18.dp), color = Color(0xFF0A0F18)) {
+                    CaseItemArtwork(item.previewKey, Modifier.width(112.dp).height(72.dp).padding(6.dp))
+                }
+                Spacer(Modifier.width(13.dp))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text("YOU UNBOXED", color = rarity, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                    Text(item.name, fontSize = 21.sp, fontWeight = FontWeight.Black)
+                    Text(
+                        "${item.weaponCategory} · ${item.rarity.name}",
+                        color = Color.White.copy(alpha = .55f),
+                        fontSize = 11.sp
+                    )
+                    Text(
+                        "Virtual value ${formatShellVc(item.marketValue)}",
+                        color = ShellGold,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
-            Spacer(Modifier.width(13.dp))
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text("YOU UNBOXED", color = rarity, fontSize = 9.sp, fontWeight = FontWeight.Black)
-                Text(item.name, fontSize = 21.sp, fontWeight = FontWeight.Black)
+            OutlinedButton(onClick = onInspect, modifier = Modifier.fillMaxWidth()) {
+                Text("INSPECT ITEM", fontWeight = FontWeight.Black)
+            }
+        }
+    }
+}
+
+@Composable
+private fun CaseInspectDialog(item: CaseItemTemplate, onDismiss: () -> Unit) {
+    val rarity = rarityColor(item.rarity)
+    val density = LocalDensity.current.density
+    var tiltX by remember(item.id) { mutableFloatStateOf(0f) }
+    var tiltY by remember(item.id) { mutableFloatStateOf(0f) }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(28.dp),
+            color = Color(0xFF080D16),
+            border = BorderStroke(1.dp, rarity.copy(alpha = .55f))
+        ) {
+            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("ITEM INSPECT", color = rarity, fontSize = 10.sp, fontWeight = FontWeight.Black)
+                        Text(item.name, fontSize = 25.sp, fontWeight = FontWeight.Black)
+                        Text(
+                            "${item.weaponCategory} · ${item.rarity.name}",
+                            color = Color.White.copy(alpha = .52f),
+                            fontSize = 11.sp
+                        )
+                    }
+                    Text(formatShellVc(item.marketValue), color = ShellGold, fontWeight = FontWeight.Black)
+                }
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(280.dp)
+                        .clip(RoundedCornerShape(24.dp))
+                        .background(
+                            Brush.radialGradient(
+                                listOf(rarity.copy(alpha = .25f), Color(0xFF0A101B), Color(0xFF05080E))
+                            )
+                        )
+                        .pointerInput(item.id) {
+                            detectDragGestures { change, dragAmount ->
+                                change.consume()
+                                tiltY = (tiltY + dragAmount.x * 0.22f).coerceIn(-42f, 42f)
+                                tiltX = (tiltX - dragAmount.y * 0.16f).coerceIn(-24f, 24f)
+                            }
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Surface(
+                        modifier = Modifier
+                            .width(286.dp)
+                            .height(184.dp)
+                            .graphicsLayer {
+                                rotationX = tiltX
+                                rotationY = tiltY
+                                cameraDistance = 22f * density
+                                shadowElevation = 18f
+                            },
+                        shape = RoundedCornerShape(24.dp),
+                        color = Color(0xFF0A0F18).copy(alpha = .78f),
+                        border = BorderStroke(1.dp, rarity.copy(alpha = .32f))
+                    ) {
+                        Box(
+                            Modifier
+                                .fillMaxSize()
+                                .background(Brush.verticalGradient(listOf(rarity.copy(alpha = .10f), Color.Transparent)))
+                                .padding(20.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CaseItemArtwork(item.previewKey, Modifier.fillMaxWidth().height(130.dp))
+                        }
+                    }
+
+                    Text(
+                        "DRAG TO ROTATE / TILT",
+                        modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp),
+                        color = Color.White.copy(alpha = .42f),
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Black,
+                        textAlign = TextAlign.Center
+                    )
+                }
+
                 Text(
-                    "${item.weaponCategory} · ${item.rarity.name}",
-                    color = Color.White.copy(alpha = .55f),
+                    "Interactive pseudo-3D preview from the local PNG artwork. Drag horizontally or vertically to inspect the drop.",
+                    color = Color.White.copy(alpha = .48f),
                     fontSize = 11.sp
                 )
-                Text(
-                    "Virtual value ${formatShellVc(item.marketValue)}",
-                    color = ShellGold,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold
-                )
+
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedButton(
+                        onClick = { tiltX = 0f; tiltY = 0f },
+                        modifier = Modifier.weight(1f)
+                    ) { Text("RESET") }
+                    Button(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("DONE") }
+                }
             }
         }
     }
