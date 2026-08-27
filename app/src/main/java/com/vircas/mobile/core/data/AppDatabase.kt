@@ -22,6 +22,7 @@ data class GameHistoryEntity(
 ) {
     val profitLoss: Long get() = payout - stake
     val won: Boolean get() = payout > stake
+    val lost: Boolean get() = payout < stake
 }
 
 @Entity(tableName = "fairness_rounds")
@@ -37,10 +38,10 @@ data class FairnessRoundEntity(
 @Dao
 interface GameHistoryDao {
     @Insert suspend fun insert(item: GameHistoryEntity)
-    @Query("SELECT * FROM game_history ORDER BY timestamp DESC LIMIT :limit") fun recent(limit: Int = 30): Flow<List<GameHistoryEntity>>
+    @Query("SELECT * FROM game_history ORDER BY timestamp DESC LIMIT :limit") fun recent(limit: Int = 100): Flow<List<GameHistoryEntity>>
     @Query("SELECT * FROM game_history WHERE game = :game ORDER BY timestamp DESC LIMIT :limit") fun byGame(game: String, limit: Int = 100): Flow<List<GameHistoryEntity>>
     @Query("SELECT * FROM game_history WHERE payout > stake ORDER BY timestamp DESC LIMIT :limit") fun wins(limit: Int = 100): Flow<List<GameHistoryEntity>>
-    @Query("SELECT * FROM game_history WHERE payout <= stake ORDER BY timestamp DESC LIMIT :limit") fun losses(limit: Int = 100): Flow<List<GameHistoryEntity>>
+    @Query("SELECT * FROM game_history WHERE payout < stake ORDER BY timestamp DESC LIMIT :limit") fun losses(limit: Int = 100): Flow<List<GameHistoryEntity>>
     @Query("DELETE FROM game_history") suspend fun clear()
 }
 
@@ -63,7 +64,7 @@ abstract class AppDatabase : RoomDatabase() {
 }
 
 class GameHistoryRepository(private val dao: GameHistoryDao) {
-    fun recent(limit: Int = 30) = dao.recent(limit)
+    fun recent(limit: Int = 100) = dao.recent(limit)
     fun wins(limit: Int = 100) = dao.wins(limit)
     fun losses(limit: Int = 100) = dao.losses(limit)
     fun byGame(game: String, limit: Int = 100) = dao.byGame(game, limit)
@@ -95,7 +96,8 @@ class FairnessRepository(private val dao: FairnessRoundDao) {
 
     suspend fun record(game: String, generatedSeed: String, clientSeed: String, result: String): String {
         val now = System.currentTimeMillis()
-        val roundId = "${game.lowercase().replace(' ', '_')}-${now.toString(36)}-${generatedSeed.take(6)}"
+        val seedTag = generatedSeed.filter(Char::isLetterOrDigit).takeLast(12).ifBlank { "local" }
+        val roundId = "${game.lowercase().replace(' ', '_')}-${now.toString(36)}-$seedTag"
         dao.insert(
             FairnessRoundEntity(
                 roundId = roundId,
