@@ -1,6 +1,5 @@
 package com.vircas.mobile.ui
 
-import androidx.lifecycle.get
 import androidx.lifecycle.viewModelScope
 import com.vircas.mobile.VirCasApplication
 import com.vircas.mobile.core.game.RoundReceipt
