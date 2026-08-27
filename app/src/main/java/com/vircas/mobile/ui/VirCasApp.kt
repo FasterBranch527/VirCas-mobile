@@ -1,7 +1,9 @@
 package com.vircas.mobile.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Casino
 import androidx.compose.material.icons.rounded.Home
@@ -12,14 +14,19 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -59,22 +66,16 @@ private fun VirCasNavigation(appViewModel: AppViewModel) {
         containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {
             if (showBottomBar) {
-                NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
-                    navItems.forEach { item ->
-                        NavigationBarItem(
-                            selected = route == item.route,
-                            onClick = {
-                                nav.navigate(item.route) {
-                                    launchSingleTop = true
-                                    popUpTo("home") { saveState = true }
-                                    restoreState = true
-                                }
-                            },
-                            icon = { Icon(item.icon, contentDescription = null) },
-                            label = { Text(item.label) }
-                        )
+                PremiumBottomBar(
+                    route = route,
+                    onNavigate = { target ->
+                        nav.navigate(target) {
+                            launchSingleTop = true
+                            popUpTo("home") { saveState = true }
+                            restoreState = true
+                        }
                     }
-                }
+                )
             }
         }
     ) { padding ->
@@ -84,7 +85,7 @@ private fun VirCasNavigation(appViewModel: AppViewModel) {
             modifier = Modifier.padding(if (showBottomBar) padding else PaddingValues(0.dp))
         ) {
             composable("home") {
-                HomeDashboardScreen(
+                PremiumHomeScreen(
                     viewModel = appViewModel,
                     onGame = { nav.navigate("game/$it") },
                     onBets = { nav.navigate("bets") },
@@ -92,15 +93,15 @@ private fun VirCasNavigation(appViewModel: AppViewModel) {
                 )
             }
             composable("games") {
-                GamesHubScreen(
+                PremiumGamesScreen(
                     onGame = { nav.navigate("game/$it") },
                     onCases = { nav.navigate("cases") }
                 )
             }
             composable("bets") { BettingCenterScreen(appViewModel) }
-            composable("inventory") { InventoryHubScreen(appViewModel) }
+            composable("inventory") { PremiumInventoryScreen(appViewModel) }
             composable("profile") {
-                MetaProfileScreen(
+                PremiumProfileScreen(
                     viewModel = appViewModel,
                     onHistory = { nav.navigate("history") },
                     onFairness = { nav.navigate("fairness") },
@@ -128,9 +129,45 @@ private fun VirCasNavigation(appViewModel: AppViewModel) {
                 }
             }
             composable("cases") { AnimatedCasesHubScreen(appViewModel, onBack = { nav.popBackStack() }) }
-            composable("history") { FilterableHistoryScreen(appViewModel, onBack = { nav.popBackStack() }) }
-            composable("fairness") { FairnessHubScreen(appViewModel, onBack = { nav.popBackStack() }) }
-            composable("settings") { AdvancedSettingsScreen(appViewModel, onBack = { nav.popBackStack() }) }
+            composable("history") { PremiumHistoryScreen(appViewModel, onBack = { nav.popBackStack() }) }
+            composable("fairness") { PremiumFairnessScreen(appViewModel, onBack = { nav.popBackStack() }) }
+            composable("settings") { PremiumSettingsScreen(appViewModel, onBack = { nav.popBackStack() }) }
+        }
+    }
+}
+
+@Composable
+private fun PremiumBottomBar(route: String?, onNavigate: (String) -> Unit) {
+    Surface(
+        modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+        shape = RoundedCornerShape(26.dp),
+        color = ShellPanel,
+        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.07f)),
+        shadowElevation = 16.dp
+    ) {
+        NavigationBar(containerColor = Color.Transparent, tonalElevation = 0.dp) {
+            navItems.forEach { item ->
+                val selected = route == item.route
+                NavigationBarItem(
+                    selected = selected,
+                    onClick = { onNavigate(item.route) },
+                    icon = { Icon(item.icon, contentDescription = item.label) },
+                    label = {
+                        Text(
+                            item.label,
+                            fontSize = 10.sp,
+                            fontWeight = if (selected) FontWeight.Black else FontWeight.Medium
+                        )
+                    },
+                    colors = NavigationBarItemDefaults.colors(
+                        selectedIconColor = Color(0xFF181107),
+                        selectedTextColor = ShellGold,
+                        indicatorColor = ShellGold,
+                        unselectedIconColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.48f),
+                        unselectedTextColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.42f)
+                    )
+                )
+            }
         }
     }
 }
