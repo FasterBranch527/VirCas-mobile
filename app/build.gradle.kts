@@ -5,6 +5,19 @@ plugins {
     id("com.google.devtools.ksp")
 }
 
+val ciRunNumber = providers.environmentVariable("GITHUB_RUN_NUMBER").orNull?.toIntOrNull() ?: 0
+val stableDevKeystoreSource = file("signing/vircas-dev.keystore.b64")
+val stableDevKeystore = layout.buildDirectory.file("signing/vircas-dev.keystore").get().asFile
+
+// CI runners are ephemeral, so Android's default debug.keystore changes between runs.
+// Materialize one project-owned DEVELOPMENT key instead so debug APKs can update each other.
+if (!stableDevKeystore.exists()) {
+    stableDevKeystore.parentFile.mkdirs()
+    stableDevKeystore.writeBytes(
+        java.util.Base64.getDecoder().decode(stableDevKeystoreSource.readText().trim())
+    )
+}
+
 android {
     namespace = "com.vircas.mobile"
     compileSdk = 35
@@ -13,14 +26,26 @@ android {
         applicationId = "com.vircas.mobile"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 10_000 + ciRunNumber
+        versionName = "0.2.$ciRunNumber"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
     }
 
+    signingConfigs {
+        create("stableDebug") {
+            storeFile = stableDevKeystore
+            storePassword = "vircas-dev-signing"
+            keyAlias = "vircas-dev"
+            keyPassword = "vircas-dev-signing"
+        }
+    }
+
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("stableDebug")
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
