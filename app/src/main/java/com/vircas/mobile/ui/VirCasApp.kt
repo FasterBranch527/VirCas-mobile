@@ -83,7 +83,7 @@ private fun VirCasNavigation(appViewModel: AppViewModel) {
             startDestination = "home",
             modifier = Modifier.padding(if (showBottomBar) padding else PaddingValues(0.dp))
         ) {
-            composable("home") { HomeHubScreen(appViewModel, onGame = { nav.navigate("game/$it") }) }
+            composable("home") { MetaHomeScreen(appViewModel, onGame = { nav.navigate("game/$it") }) }
             composable("games") {
                 GamesHubScreen(
                     onGame = { nav.navigate("game/$it") },
@@ -93,7 +93,7 @@ private fun VirCasNavigation(appViewModel: AppViewModel) {
             composable("bets") { BetsHubScreen(appViewModel) }
             composable("inventory") { InventoryHubScreen(appViewModel) }
             composable("profile") {
-                ProfileHubScreen(
+                MetaProfileScreen(
                     viewModel = appViewModel,
                     onHistory = { nav.navigate("history") },
                     onFairness = { nav.navigate("fairness") },
@@ -122,7 +122,7 @@ private fun VirCasNavigation(appViewModel: AppViewModel) {
             composable("cases") { CasesHubScreen(appViewModel, onBack = { nav.popBackStack() }) }
             composable("history") { HistoryHubScreen(appViewModel, onBack = { nav.popBackStack() }) }
             composable("fairness") { FairnessHubScreen(appViewModel, onBack = { nav.popBackStack() }) }
-            composable("settings") { SettingsHubScreen(appViewModel, onBack = { nav.popBackStack() }) }
+            composable("settings") { AdvancedSettingsScreen(appViewModel, onBack = { nav.popBackStack() }) }
         }
     }
 }
