@@ -1,3 +1,5 @@
+import java.util.Base64
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -14,7 +16,7 @@ val stableDevKeystore = layout.buildDirectory.file("signing/vircas-dev.keystore"
 if (!stableDevKeystore.exists()) {
     stableDevKeystore.parentFile.mkdirs()
     stableDevKeystore.writeBytes(
-        java.util.Base64.getDecoder().decode(stableDevKeystoreSource.readText().trim())
+        Base64.getDecoder().decode(stableDevKeystoreSource.readText().trim())
     )
 }
 
