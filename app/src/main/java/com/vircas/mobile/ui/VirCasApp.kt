@@ -90,12 +90,7 @@ private fun VirCasNavigation(appViewModel: AppViewModel) {
                     onCases = { nav.navigate("cases") }
                 )
             }
-            composable("bets") {
-                AdvancedBettingHubScreen(
-                    viewModel = appViewModel,
-                    onHorseRace = { nav.navigate("game/horse") }
-                )
-            }
+            composable("bets") { BettingCenterScreen(appViewModel) }
             composable("inventory") { InventoryHubScreen(appViewModel) }
             composable("profile") {
                 MetaProfileScreen(
