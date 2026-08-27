@@ -37,32 +37,18 @@ data class FairnessRoundEntity(
 @Dao
 interface GameHistoryDao {
     @Insert suspend fun insert(item: GameHistoryEntity)
-
-    @Query("SELECT * FROM game_history ORDER BY timestamp DESC LIMIT :limit")
-    fun recent(limit: Int = 30): Flow<List<GameHistoryEntity>>
-
-    @Query("SELECT * FROM game_history WHERE game = :game ORDER BY timestamp DESC LIMIT :limit")
-    fun byGame(game: String, limit: Int = 100): Flow<List<GameHistoryEntity>>
-
-    @Query("SELECT * FROM game_history WHERE payout > stake ORDER BY timestamp DESC LIMIT :limit")
-    fun wins(limit: Int = 100): Flow<List<GameHistoryEntity>>
-
-    @Query("SELECT * FROM game_history WHERE payout <= stake ORDER BY timestamp DESC LIMIT :limit")
-    fun losses(limit: Int = 100): Flow<List<GameHistoryEntity>>
-
-    @Query("DELETE FROM game_history")
-    suspend fun clear()
+    @Query("SELECT * FROM game_history ORDER BY timestamp DESC LIMIT :limit") fun recent(limit: Int = 30): Flow<List<GameHistoryEntity>>
+    @Query("SELECT * FROM game_history WHERE game = :game ORDER BY timestamp DESC LIMIT :limit") fun byGame(game: String, limit: Int = 100): Flow<List<GameHistoryEntity>>
+    @Query("SELECT * FROM game_history WHERE payout > stake ORDER BY timestamp DESC LIMIT :limit") fun wins(limit: Int = 100): Flow<List<GameHistoryEntity>>
+    @Query("SELECT * FROM game_history WHERE payout <= stake ORDER BY timestamp DESC LIMIT :limit") fun losses(limit: Int = 100): Flow<List<GameHistoryEntity>>
+    @Query("DELETE FROM game_history") suspend fun clear()
 }
 
 @Dao
 interface FairnessRoundDao {
     @Insert suspend fun insert(item: FairnessRoundEntity)
-
-    @Query("SELECT * FROM fairness_rounds ORDER BY timestamp DESC LIMIT :limit")
-    fun recent(limit: Int = 100): Flow<List<FairnessRoundEntity>>
-
-    @Query("DELETE FROM fairness_rounds")
-    suspend fun clear()
+    @Query("SELECT * FROM fairness_rounds ORDER BY timestamp DESC LIMIT :limit") fun recent(limit: Int = 100): Flow<List<FairnessRoundEntity>>
+    @Query("DELETE FROM fairness_rounds") suspend fun clear()
 }
 
 @Database(
@@ -100,6 +86,8 @@ class GameHistoryRepository(private val dao: GameHistoryDao) {
             details = details
         )
     )
+
+    suspend fun clear() = dao.clear()
 }
 
 class FairnessRepository(private val dao: FairnessRoundDao) {
@@ -120,4 +108,6 @@ class FairnessRepository(private val dao: FairnessRoundDao) {
         )
         return roundId
     }
+
+    suspend fun clear() = dao.clear()
 }
