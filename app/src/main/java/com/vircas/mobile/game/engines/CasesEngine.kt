@@ -30,7 +30,7 @@ data class CaseOpeningResult(
 )
 
 class CasesEngine(private val random: RandomProvider) {
-    fun open(case: CaseDefinition, reelSize: Int = 36, winningIndex: Int = 30): CaseOpeningResult {
+    fun open(case: CaseDefinition, reelSize: Int = 80, winningIndex: Int = 70): CaseOpeningResult {
         require(case.cost > 0 && case.items.isNotEmpty())
         require(reelSize >= 10 && winningIndex in 0 until reelSize)
         val won = pick(case.items)

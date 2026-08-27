@@ -11,10 +11,11 @@ class CasesEngineTest {
         override fun nextDouble(): Double = 0.0
     }
 
-    @Test fun caseOpeningPrecomputesWinnerAndReelStop() {
+    @Test fun caseOpeningPrecomputesWinnerAndLongReelStop() {
         val result = CasesEngine(ZeroRandom).open(CasesEngine.Starter)
         assertEquals(ItemRarity.COMMON, result.item.rarity)
-        assertEquals(36, result.reel.size)
+        assertEquals(80, result.reel.size)
+        assertEquals(70, result.winningIndex)
         assertEquals(result.item, result.reel[result.winningIndex])
         assertTrue(CasesEngine.All.all { it.cost > 0 && it.items.isNotEmpty() })
     }
