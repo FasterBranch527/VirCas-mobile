@@ -65,7 +65,7 @@ fun PremiumHomeScreen(
     val progress by viewModel.progress.collectAsState()
     val history by viewModel.history.collectAsState()
     val missions = remember(progress) { viewModel.dailyMissions(progress) }
-    val continueGame = remember(history) { history.firstNotNullOfOrNull { gameIdFromHistory(it.game) } ?: "roulette" }
+    val continueGame = remember(history) { history.firstNotNullOfOrNull { shellGameIdFromHistory(it.game) } ?: "roulette" }
     var showFunds by remember { mutableStateOf(false) }
     var rewardText by remember { mutableStateOf<String?>(null) }
     var missionText by remember { mutableStateOf<String?>(null) }
@@ -370,4 +370,21 @@ private fun LargeGameCard(id: String, modifier: Modifier = Modifier, onClick: ()
             }
         }
     }
+}
+
+private fun shellGameIdFromHistory(name: String): String? = when (name.lowercase()) {
+    "dice" -> "dice"
+    "coinflip" -> "coinflip"
+    "mines" -> "mines"
+    "wheel" -> "wheel"
+    "roulette" -> "roulette"
+    "blackjack" -> "blackjack"
+    "hi-lo" -> "hilo"
+    "towers" -> "towers"
+    "ladder" -> "ladder"
+    "slots" -> "slots"
+    "crash" -> "crash"
+    "plinko" -> "plinko"
+    "horse racing" -> "horse"
+    else -> null
 }
