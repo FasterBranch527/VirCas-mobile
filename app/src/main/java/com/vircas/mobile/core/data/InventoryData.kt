@@ -27,7 +27,7 @@ interface InventoryDao {
     @Query("SELECT * FROM inventory WHERE id = :id LIMIT 1")
     suspend fun find(id: String): InventoryItemEntity?
     @Query("DELETE FROM inventory WHERE id = :id")
-    suspend fun delete(id: String)
+    suspend fun delete(id: String): Int
     @Query("DELETE FROM inventory")
     suspend fun clear()
 }
@@ -36,6 +36,6 @@ class InventoryRepository(private val dao: InventoryDao) {
     val items: Flow<List<InventoryItemEntity>> = dao.observeAll()
     suspend fun add(item: InventoryItemEntity) = dao.insert(item)
     suspend fun find(id: String) = dao.find(id)
-    suspend fun remove(id: String) = dao.delete(id)
+    suspend fun remove(id: String): Boolean = dao.delete(id) > 0
     suspend fun clear() = dao.clear()
 }
