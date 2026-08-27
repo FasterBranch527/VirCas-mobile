@@ -25,7 +25,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -33,54 +32,29 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.vircas.mobile.AppContainer
-import com.vircas.mobile.core.data.InventoryItemEntity
-import com.vircas.mobile.core.random.SeededRandomProvider
-import com.vircas.mobile.core.wallet.WalletRepository
+import com.vircas.mobile.core.random.RandomProvider
 import com.vircas.mobile.game.engines.*
-import java.util.UUID
-import kotlinx.coroutines.launch
 
 private const val DEFAULT_STAKE = 500L
 
-private data class InstantRoundResult(
-    val label: String,
-    val payout: Long,
-    val multiplier: Double,
-    val details: String = ""
-)
-
 @Composable
-fun GamePlayScreen(gameId: String, container: AppContainer, onBack: () -> Unit) {
-    val balance by container.walletRepository.balance.collectAsState(initial = WalletRepository.STARTING_BALANCE)
+fun GamePlayScreen(gameId: String, viewModel: AppViewModel, onBack: () -> Unit) {
+    val balance by viewModel.balance.collectAsState()
     var lastResult by remember(gameId) { mutableStateOf("Choose Play to start a virtual round.") }
     var busy by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
     val title = gameTitle(gameId)
 
     fun runRound() {
         if (busy) return
         busy = true
-        scope.launch {
-            if (!container.walletRepository.debit(DEFAULT_STAKE)) {
-                lastResult = "Not enough VC for a $DEFAULT_STAKE VC stake."
-                busy = false
-                return@launch
-            }
-            val seed = UUID.randomUUID().toString().replace("-", "")
-            val result = playInstant(gameId, seed)
-            if (result.payout > 0) container.walletRepository.credit(result.payout)
-            container.historyRepository.record(
-                game = title,
-                stake = DEFAULT_STAKE,
-                payout = result.payout,
-                multiplier = result.multiplier,
-                result = result.label,
-                details = result.details
-            )
-            container.progressionRepository.recordGame(title, DEFAULT_STAKE, result.payout)
-            container.fairnessRepository.record(title, seed, "local", result.label)
-            lastResult = result.label
+        viewModel.playResolved(
+            game = title,
+            stake = DEFAULT_STAKE,
+            resolver = { random -> playInstant(gameId, random) }
+        ) { receipt ->
+            lastResult = receipt?.let {
+                "${it.result} · ${if (it.payout > 0) "payout ${it.payout} VC" else "no payout"}"
+            } ?: "Round could not start. Check your balance."
             busy = false
         }
     }
@@ -126,7 +100,7 @@ fun GamePlayScreen(gameId: String, container: AppContainer, onBack: () -> Unit) 
 
         if (gameId in setOf("mines", "ladder", "towers", "hilo", "crash")) {
             Text(
-                "This screen resolves one complete quick round through the same engine used by the game model. Dedicated animated multi-step presentation can build on the engine without moving outcome logic into UI.",
+                "Quick play settles a complete short round through the same domain engine. Multi-step wager APIs live in the ViewModel for dedicated animated presentations.",
                 color = Color(0xFF64748B),
                 fontSize = 12.sp
             )
@@ -134,92 +108,79 @@ fun GamePlayScreen(gameId: String, container: AppContainer, onBack: () -> Unit) 
     }
 }
 
-private fun playInstant(gameId: String, seed: String): InstantRoundResult {
-    val random = SeededRandomProvider(seed.hashCode().toLong())
-    return when (gameId) {
-        "dice" -> {
-            val r = DiceEngine(random).roll(60.0, under = true)
-            val m = r.outcome.multiplier
-            InstantRoundResult("Rolled ${"%.2f".format(r.roll)} · ${if (m > 0) "WIN ${"%.2f".format(m)}x" else "LOSS"}", (DEFAULT_STAKE * m).toLong(), m)
-        }
-        "coinflip" -> {
-            val r = CoinflipEngine(random).flip(CoinflipEngine.Side.HEADS)
-            val m = r.outcome.multiplier
-            InstantRoundResult("${r.side.name} · ${if (m > 0) "WIN" else "LOSS"}", (DEFAULT_STAKE * m).toLong(), m)
-        }
-        "wheel" -> {
-            val r = WheelEngine(random).spin()
-            val m = r.multiplier
-            InstantRoundResult("Wheel stopped at ${if (m > 0) "${m}x" else "0x"}", (DEFAULT_STAKE * m).toLong(), m)
-        }
-        "roulette" -> {
-            val r = RouletteEngine(random).spin(RouletteBet.Color(RouletteColor.RED))
-            val m = r.payoutMultiplier
-            InstantRoundResult("${r.number} ${r.color.name} · ${if (r.won) "WIN" else "LOSS"}", (DEFAULT_STAKE * m).toLong(), m)
-        }
-        "blackjack" -> {
-            val engine = BlackjackEngine(random)
-            var round = engine.newRound()
-            if (round.status == BlackjackStatus.PLAYER_TURN) round = engine.stand(round)
-            val m = round.payoutMultiplier
-            val player = BlackjackEngine.score(round.player).total
-            val dealer = BlackjackEngine.score(round.dealer).total
-            InstantRoundResult("${round.status.name.replace('_', ' ')} · $player vs $dealer", (DEFAULT_STAKE * m).toLong(), m)
-        }
-        "hilo" -> {
-            val engine = HiLoEngine(random)
-            val start = engine.newRound()
-            val r = engine.guess(start, HiLoGuess.HIGHER)
-            val m = r.payoutMultiplier
-            InstantRoundResult("${start.current.rank.name} → ${r.next.rank.name} · ${if (r.won) "WIN" else "LOSS"}", (DEFAULT_STAKE * m).toLong(), m)
-        }
-        "towers" -> {
-            val engine = TowersEngine(random)
-            val r = engine.choose(engine.newRound(), 0)
-            val m = r.payoutMultiplier
-            InstantRoundResult("Tower floor 1 · ${if (r.won) "SAFE ${"%.2f".format(m)}x" else "TRAP"}", (DEFAULT_STAKE * m).toLong(), m)
-        }
-        "ladder" -> {
-            val engine = LadderEngine(random)
-            val r = engine.choose(engine.newRound(), 0)
-            val m = r.payoutMultiplier
-            InstantRoundResult("Ladder step 1 · ${if (r.won) "SAFE ${m}x" else "MISS"}", (DEFAULT_STAKE * m).toLong(), m)
-        }
-        "mines" -> {
-            val engine = MinesEngine(random)
-            val round = engine.newRound(3)
-            val (_, outcome) = engine.reveal(round, 0)
-            val m = outcome?.multiplier ?: 0.0
-            InstantRoundResult("Tile 1 · ${if (m > 0) "SAFE ${"%.2f".format(m)}x" else "MINE"}", (DEFAULT_STAKE * m).toLong(), m)
-        }
-        "slots" -> {
-            val r = SlotsEngine(random).spin(SlotsEngine.NeonFruits)
-            val m = r.payoutMultiplier
-            val grid = r.grid.joinToString(" / ") { row -> row.joinToString(" ") { it.id } }
-            InstantRoundResult("${if (m > 0) "WIN ${"%.2f".format(m)}x" else "No win"}", (DEFAULT_STAKE * m).toLong(), m, grid)
-        }
-        "crash" -> {
-            val engine = CrashEngine(random)
-            val round = engine.newRound()
-            val cash = engine.cashOut(round, 2.0)
-            val m = cash.payoutMultiplier
-            InstantRoundResult("Crash ${round.crashPoint}x · auto collect 2.00x ${if (cash.won) "WON" else "MISSED"}", (DEFAULT_STAKE * m).toLong(), m)
-        }
-        "plinko" -> {
-            val r = PlinkoEngine(random).drop(PlinkoRisk.MEDIUM)
-            InstantRoundResult("Bucket ${r.bucket} · ${r.multiplier}x", (DEFAULT_STAKE * r.multiplier).toLong(), r.multiplier)
-        }
-        "horse" -> {
-            val engine = HorseRacingEngine(random)
-            val race = engine.generateRace(count = 8)
-            val pick = race.horses.first()
-            val result = engine.simulate(race)
-            val won = result.winnerId == pick.id
-            val m = if (won) pick.odds else 0.0
-            InstantRoundResult("Picked ${pick.name} · winner ${race.horses.first { it.id == result.winnerId }.name}", (DEFAULT_STAKE * m).toLong(), m, result.finishOrder.joinToString())
-        }
-        else -> InstantRoundResult("Game engine unavailable", 0, 0.0)
+private fun playInstant(gameId: String, random: RandomProvider): ResolvedPlay = when (gameId) {
+    "dice" -> {
+        val r = DiceEngine(random).roll(60.0, under = true)
+        val m = r.outcome.multiplier
+        ResolvedPlay(m, "Rolled ${"%.2f".format(r.roll)} · ${if (m > 0) "WIN ${"%.2f".format(m)}x" else "LOSS"}")
     }
+    "coinflip" -> {
+        val r = CoinflipEngine(random).flip(CoinflipEngine.Side.HEADS)
+        ResolvedPlay(r.outcome.multiplier, "${r.side.name} · ${if (r.outcome.multiplier > 0) "WIN" else "LOSS"}")
+    }
+    "wheel" -> {
+        val r = WheelEngine(random).spin()
+        ResolvedPlay(r.multiplier, "Wheel stopped at ${r.multiplier}x")
+    }
+    "roulette" -> {
+        val r = RouletteEngine(random).spin(RouletteBet.Color(RouletteColor.RED))
+        ResolvedPlay(r.payoutMultiplier, "${r.number} ${r.color.name} · ${if (r.won) "WIN" else "LOSS"}")
+    }
+    "blackjack" -> {
+        val engine = BlackjackEngine(random)
+        var round = engine.newRound()
+        if (round.status == BlackjackStatus.PLAYER_TURN) round = engine.stand(round)
+        val player = BlackjackEngine.score(round.player).total
+        val dealer = BlackjackEngine.score(round.dealer).total
+        ResolvedPlay(round.payoutMultiplier, "${round.status.name.replace('_', ' ')} · $player vs $dealer")
+    }
+    "hilo" -> {
+        val engine = HiLoEngine(random)
+        val start = engine.newRound()
+        val r = engine.guess(start, HiLoGuess.HIGHER)
+        ResolvedPlay(r.payoutMultiplier, "${start.current.rank.name} → ${r.next.rank.name} · ${if (r.won) "WIN" else "LOSS"}")
+    }
+    "towers" -> {
+        val engine = TowersEngine(random)
+        val r = engine.choose(engine.newRound(), 0)
+        ResolvedPlay(r.payoutMultiplier, "Tower floor 1 · ${if (r.won) "SAFE ${"%.2f".format(r.payoutMultiplier)}x" else "TRAP"}")
+    }
+    "ladder" -> {
+        val engine = LadderEngine(random)
+        val r = engine.choose(engine.newRound(), 0)
+        ResolvedPlay(r.payoutMultiplier, "Ladder step 1 · ${if (r.won) "SAFE ${r.payoutMultiplier}x" else "MISS"}")
+    }
+    "mines" -> {
+        val engine = MinesEngine(random)
+        val (_, outcome) = engine.reveal(engine.newRound(3), 0)
+        val m = outcome?.multiplier ?: 0.0
+        ResolvedPlay(m, "Tile 1 · ${if (m > 0) "SAFE ${"%.2f".format(m)}x" else "MINE"}")
+    }
+    "slots" -> {
+        val r = SlotsEngine(random).spin(SlotsEngine.NeonFruits)
+        val grid = r.grid.joinToString(" / ") { row -> row.joinToString(" ") { it.id } }
+        ResolvedPlay(r.payoutMultiplier, if (r.payoutMultiplier > 0) "WIN ${"%.2f".format(r.payoutMultiplier)}x" else "No win", grid)
+    }
+    "crash" -> {
+        val engine = CrashEngine(random)
+        val round = engine.newRound()
+        val cash = engine.cashOut(round, 2.0)
+        ResolvedPlay(cash.payoutMultiplier, "Crash ${round.crashPoint}x · auto collect 2.00x ${if (cash.won) "WON" else "MISSED"}")
+    }
+    "plinko" -> {
+        val r = PlinkoEngine(random).drop(PlinkoRisk.MEDIUM)
+        ResolvedPlay(r.multiplier, "Bucket ${r.bucket} · ${r.multiplier}x", r.path.joinToString("") { if (it) "R" else "L" })
+    }
+    "horse" -> {
+        val engine = HorseRacingEngine(random)
+        val race = engine.generateRace(count = 8)
+        val pick = race.horses.first()
+        val result = engine.simulate(race)
+        val won = result.winnerId == pick.id
+        val m = if (won) pick.odds else 0.0
+        ResolvedPlay(m, "Picked ${pick.name} · winner ${race.horses.first { it.id == result.winnerId }.name}", result.finishOrder.joinToString())
+    }
+    else -> ResolvedPlay(0.0, "Game engine unavailable")
 }
 
 fun gameTitle(id: String): String = when (id) {
