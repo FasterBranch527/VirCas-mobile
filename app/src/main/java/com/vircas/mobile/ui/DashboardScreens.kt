@@ -24,7 +24,6 @@ import androidx.compose.material.icons.rounded.Casino
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Inventory2
 import androidx.compose.material.icons.rounded.Person
-import androidx.compose.material.icons.rounded.ReceiptLong
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -41,7 +40,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -85,11 +83,19 @@ fun HomeDashboardScreen(
                 Spacer(Modifier.width(11.dp))
                 Column(Modifier.weight(1f)) {
                     Text("NightShift", fontSize = 21.sp, fontWeight = FontWeight.Black)
-                    Text("Level ${progress.level} · ${progress.levelXp}/1000 XP", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f), fontSize = 12.sp)
+                    Text(
+                        "Level ${progress.level} · ${progress.levelXp}/1000 XP",
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f),
+                        fontSize = 12.sp
+                    )
                 }
                 Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
                     Column(Modifier.padding(horizontal = 15.dp, vertical = 10.dp), horizontalAlignment = Alignment.End) {
-                        Text("VIRTUAL BALANCE", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.62f))
+                        Text(
+                            "VIRTUAL BALANCE",
+                            fontSize = 9.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.62f)
+                        )
                         Text("%,d VC".format(animatedBalance.toLong()), fontWeight = FontWeight.Black)
                     }
                 }
@@ -109,18 +115,31 @@ fun HomeDashboardScreen(
                 shape = RoundedCornerShape(30.dp),
                 color = MaterialTheme.colorScheme.primaryContainer
             ) {
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .height(190.dp)
-                        .padding(24.dp)
-                ) {
+                Box(Modifier.fillMaxWidth().height(190.dp).padding(24.dp)) {
                     Column(Modifier.align(Alignment.BottomStart), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("FEATURED ORIGINAL", color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.66f), fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                        Text("NEON MINES", color = MaterialTheme.colorScheme.onPrimaryContainer, fontSize = 34.sp, fontWeight = FontWeight.Black)
-                        Text("5×5 board · live multiplier · cash out", color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f))
+                        Text(
+                            "FEATURED ORIGINAL",
+                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.66f),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            "NEON MINES",
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            fontSize = 34.sp,
+                            fontWeight = FontWeight.Black
+                        )
+                        Text(
+                            "5×5 board · live multiplier · cash out",
+                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                        )
                     }
-                    Icon(Icons.Rounded.AutoAwesome, null, Modifier.align(Alignment.TopEnd), tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                    Icon(
+                        Icons.Rounded.AutoAwesome,
+                        null,
+                        Modifier.align(Alignment.TopEnd),
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
                 }
             }
         }
@@ -130,7 +149,11 @@ fun HomeDashboardScreen(
                 Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("Daily Reward", fontWeight = FontWeight.Black)
-                        Text("Streak ${progress.dailyStreak} · 7-day cycle", color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.66f), fontSize = 12.sp)
+                        Text(
+                            "Streak ${progress.dailyStreak} · 7-day cycle",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.66f),
+                            fontSize = 12.sp
+                        )
                         rewardMessage?.let { Text(it, color = MaterialTheme.colorScheme.secondary, fontSize = 12.sp) }
                     }
                     Button(onClick = {
@@ -171,7 +194,9 @@ fun HomeDashboardScreen(
         }
 
         item { DashboardSectionTitle("Daily Missions") }
-        missionMessage?.let { message -> item { Text(message, color = MaterialTheme.colorScheme.secondary, fontSize = 12.sp) } }
+        missionMessage?.let { message ->
+            item { Text(message, color = MaterialTheme.colorScheme.secondary, fontSize = 12.sp) }
+        }
         items(missions, key = { it.id }) { mission ->
             Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
                 Column(Modifier.fillMaxWidth().padding(15.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -179,14 +204,24 @@ fun HomeDashboardScreen(
                         Icon(Icons.Rounded.Bolt, null, tint = MaterialTheme.colorScheme.tertiary)
                         Spacer(Modifier.width(10.dp))
                         Text(mission.title, Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
-                        Text("${mission.progress.coerceAtMost(mission.target)}/${mission.target}", color = MaterialTheme.colorScheme.secondary)
+                        Text(
+                            "${mission.progress.coerceAtMost(mission.target)}/${mission.target}",
+                            color = MaterialTheme.colorScheme.secondary
+                        )
                     }
-                    LinearProgressIndicator(progress = { (mission.progress.toFloat() / mission.target).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
+                    LinearProgressIndicator(
+                        progress = { (mission.progress.toFloat() / mission.target).coerceIn(0f, 1f) },
+                        modifier = Modifier.fillMaxWidth()
+                    )
                     if (mission.complete) {
                         Button(
                             onClick = {
                                 viewModel.claimMission(mission) { coins ->
-                                    missionMessage = if (coins != null) "+$coins VC · +${mission.xpReward} XP" else "Reward already claimed"
+                                    missionMessage = if (coins != null) {
+                                        "+$coins VC · +${mission.xpReward} XP"
+                                    } else {
+                                        "Reward already claimed"
+                                    }
                                 }
                             },
                             enabled = !mission.claimed,
@@ -207,9 +242,18 @@ fun HomeDashboardScreen(
                         color = MaterialTheme.colorScheme.surfaceVariant
                     ) {
                         Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                            Text(event.sport.name, color = MaterialTheme.colorScheme.secondary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            Text(
+                                event.sport.name,
+                                color = MaterialTheme.colorScheme.secondary,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold
+                            )
                             Text("${event.home} vs ${event.away}", fontWeight = FontWeight.Black)
-                            Text("${event.homeOdds} · ${event.drawOdds ?: "—"} · ${event.awayOdds}", color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.66f), fontSize = 12.sp)
+                            Text(
+                                "${event.homeOdds} · ${event.drawOdds ?: "—"} · ${event.awayOdds}",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.66f),
+                                fontSize = 12.sp
+                            )
                         }
                     }
                 }
@@ -228,7 +272,12 @@ fun HomeDashboardScreen(
 
         item { DashboardSectionTitle("Recent Wins") }
         if (recentWins.isEmpty()) {
-            item { Text("Winning rounds will appear here.", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)) }
+            item {
+                Text(
+                    "Winning rounds will appear here.",
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
+                )
+            }
         } else {
             item {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -236,8 +285,17 @@ fun HomeDashboardScreen(
                         Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
                             Column(Modifier.width(180.dp).padding(14.dp)) {
                                 Text(row.game, fontWeight = FontWeight.Bold)
-                                Text("+%,d VC".format(row.profitLoss), color = MaterialTheme.colorScheme.tertiary, fontWeight = FontWeight.Black)
-                                Text(row.result, maxLines = 1, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.62f), fontSize = 11.sp)
+                                Text(
+                                    "+%,d VC".format(row.profitLoss),
+                                    color = MaterialTheme.colorScheme.tertiary,
+                                    fontWeight = FontWeight.Black
+                                )
+                                Text(
+                                    row.result,
+                                    maxLines = 1,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.62f),
+                                    fontSize = 11.sp
+                                )
                             }
                         }
                     }
@@ -262,7 +320,7 @@ fun FilterableHistoryScreen(viewModel: AppViewModel, onBack: () -> Unit) {
             val resultMatches = when (resultFilter) {
                 HistoryResultFilter.ALL -> true
                 HistoryResultFilter.WINS -> row.won
-                HistoryResultFilter.LOSSES -> !row.won
+                HistoryResultFilter.LOSSES -> row.lost
             }
             resultMatches && (gameFilter == null || row.game == gameFilter)
         }
@@ -274,7 +332,11 @@ fun FilterableHistoryScreen(viewModel: AppViewModel, onBack: () -> Unit) {
                 IconButton(onClick = onBack) { Icon(Icons.Rounded.ArrowBack, contentDescription = "Back") }
                 Column(Modifier.weight(1f)) {
                     Text("Game History", fontSize = 30.sp, fontWeight = FontWeight.Black)
-                    Text("${visible.size} of ${history.size} local rounds", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f), fontSize = 12.sp)
+                    Text(
+                        "${visible.size} of ${history.size} local rounds",
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f),
+                        fontSize = 12.sp
+                    )
                 }
             }
         }
@@ -295,17 +357,30 @@ fun FilterableHistoryScreen(viewModel: AppViewModel, onBack: () -> Unit) {
             item {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                     item {
-                        FilterChip(selected = gameFilter == null, onClick = { gameFilter = null }, label = { Text("All games") })
+                        FilterChip(
+                            selected = gameFilter == null,
+                            onClick = { gameFilter = null },
+                            label = { Text("All games") }
+                        )
                     }
                     items(games) { game ->
-                        FilterChip(selected = gameFilter == game, onClick = { gameFilter = game }, label = { Text(game) })
+                        FilterChip(
+                            selected = gameFilter == game,
+                            onClick = { gameFilter = game },
+                            label = { Text(game) }
+                        )
                     }
                 }
             }
         }
 
         if (visible.isEmpty()) {
-            item { Text("No rounds match these filters.", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f)) }
+            item {
+                Text(
+                    "No rounds match these filters.",
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f)
+                )
+            }
         }
 
         items(visible, key = { it.id }) { row -> HistoryRow(row) }
@@ -314,22 +389,45 @@ fun FilterableHistoryScreen(viewModel: AppViewModel, onBack: () -> Unit) {
 
 @Composable
 private fun HistoryRow(row: GameHistoryEntity) {
+    val profitText = when {
+        row.profitLoss > 0L -> "+%,d VC".format(row.profitLoss)
+        row.profitLoss < 0L -> "%,d VC".format(row.profitLoss)
+        else -> "0 VC"
+    }
+    val profitColor = when {
+        row.won -> MaterialTheme.colorScheme.tertiary
+        row.lost -> MaterialTheme.colorScheme.error
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+
     Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
         Column(Modifier.fillMaxWidth().padding(15.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(row.game, Modifier.weight(1f), fontWeight = FontWeight.Black)
-                Text(
-                    if (row.profitLoss >= 0) "+%,d VC".format(row.profitLoss) else "%,d VC".format(row.profitLoss),
-                    color = if (row.won) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.error,
-                    fontWeight = FontWeight.Bold
-                )
+                Text(profitText, color = profitColor, fontWeight = FontWeight.Bold)
             }
             Text(row.result, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.78f))
             Row {
-                Text("Stake %,d".format(row.stake), Modifier.weight(1f), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.56f))
-                Text("Payout %,d · ${"%.2f".format(row.multiplier)}x".format(row.payout), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.56f))
+                Text(
+                    "Stake %,d".format(row.stake),
+                    Modifier.weight(1f),
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.56f)
+                )
+                Text(
+                    "Payout %,d · ${"%.2f".format(row.multiplier)}x".format(row.payout),
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.56f)
+                )
             }
-            if (row.details.isNotBlank()) Text(row.details, maxLines = 2, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
+            if (row.details.isNotBlank()) {
+                Text(
+                    row.details,
+                    maxLines = 2,
+                    fontSize = 10.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                )
+            }
         }
     }
 }
@@ -358,7 +456,11 @@ private fun DashboardActionCard(
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(title, fontWeight = FontWeight.Black)
-                Text(subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.62f), fontSize = 12.sp)
+                Text(
+                    subtitle,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.62f),
+                    fontSize = 12.sp
+                )
             }
             Icon(Icons.Rounded.ChevronRight, null)
         }
