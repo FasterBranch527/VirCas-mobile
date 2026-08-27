@@ -7,6 +7,7 @@ import com.vircas.mobile.core.data.FairnessRepository
 import com.vircas.mobile.core.data.GameHistoryRepository
 import com.vircas.mobile.core.data.InventoryRepository
 import com.vircas.mobile.core.data.SettingsRepository
+import com.vircas.mobile.core.game.GameLedger
 import com.vircas.mobile.core.progression.ProgressionRepository
 import com.vircas.mobile.core.wallet.WalletRepository
 
@@ -19,13 +20,18 @@ class VirCasApplication : Application() {
         val db = Room.databaseBuilder(this, AppDatabase::class.java, "vircas.db")
             .fallbackToDestructiveMigration()
             .build()
+        val wallet = WalletRepository(this)
+        val progression = ProgressionRepository(this)
+        val history = GameHistoryRepository(db.gameHistoryDao())
+        val fairness = FairnessRepository(db.fairnessRoundDao())
         container = AppContainer(
-            walletRepository = WalletRepository(this),
+            walletRepository = wallet,
             settingsRepository = SettingsRepository(this),
-            historyRepository = GameHistoryRepository(db.gameHistoryDao()),
+            historyRepository = history,
             inventoryRepository = InventoryRepository(db.inventoryDao()),
-            progressionRepository = ProgressionRepository(this),
-            fairnessRepository = FairnessRepository(db.fairnessRoundDao())
+            progressionRepository = progression,
+            fairnessRepository = fairness,
+            gameLedger = GameLedger(wallet, history, progression, fairness)
         )
     }
 }
@@ -36,5 +42,6 @@ data class AppContainer(
     val historyRepository: GameHistoryRepository,
     val inventoryRepository: InventoryRepository,
     val progressionRepository: ProgressionRepository,
-    val fairnessRepository: FairnessRepository
+    val fairnessRepository: FairnessRepository,
+    val gameLedger: GameLedger
 )
