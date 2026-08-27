@@ -83,9 +83,7 @@ private fun VirCasNavigation(appViewModel: AppViewModel) {
             startDestination = "home",
             modifier = Modifier.padding(if (showBottomBar) padding else PaddingValues(0.dp))
         ) {
-            composable("home") {
-                HomeHubScreen(appViewModel, onGame = { nav.navigate("game/$it") })
-            }
+            composable("home") { HomeHubScreen(appViewModel, onGame = { nav.navigate("game/$it") }) }
             composable("games") {
                 GamesHubScreen(
                     onGame = { nav.navigate("game/$it") },
@@ -106,6 +104,12 @@ private fun VirCasNavigation(appViewModel: AppViewModel) {
                 val gameId = entry.arguments?.getString("gameId") ?: "dice"
                 val back = { nav.popBackStack(); Unit }
                 when (gameId) {
+                    "dice" -> DiceGameScreen(appViewModel, back)
+                    "coinflip" -> CoinflipGameScreen(appViewModel, back)
+                    "wheel" -> WheelGameScreen(appViewModel, back)
+                    "roulette" -> RouletteGameScreen(appViewModel, back)
+                    "slots" -> SlotsGameScreen(appViewModel, back)
+                    "plinko" -> PlinkoGameScreen(appViewModel, back)
                     "mines" -> MinesGameScreen(appViewModel, back)
                     "crash" -> CrashGameScreen(appViewModel, back)
                     "blackjack" -> BlackjackGameScreen(appViewModel, back)
