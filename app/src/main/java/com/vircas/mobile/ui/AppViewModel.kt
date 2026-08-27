@@ -8,16 +8,32 @@ import com.vircas.mobile.core.data.FairnessRoundEntity
 import com.vircas.mobile.core.data.GameHistoryEntity
 import com.vircas.mobile.core.data.InventoryItemEntity
 import com.vircas.mobile.core.data.UserSettings
+import com.vircas.mobile.core.game.RoundReceipt
 import com.vircas.mobile.core.progression.DailyRewardClaim
 import com.vircas.mobile.core.progression.UserProgress
+import com.vircas.mobile.core.random.RandomProvider
+import com.vircas.mobile.core.random.SecureRandomProvider
+import com.vircas.mobile.core.random.SeededRandomProvider
 import com.vircas.mobile.core.wallet.WalletRepository
+import com.vircas.mobile.game.engines.CaseDefinition
+import com.vircas.mobile.game.engines.CaseOpeningResult
+import com.vircas.mobile.game.engines.CasesEngine
+import com.vircas.mobile.game.engines.MarketSelection
+import com.vircas.mobile.game.engines.SimulatedEventResult
+import com.vircas.mobile.game.engines.SportsBettingEngine
+import com.vircas.mobile.game.engines.VirtualEvent
+import java.util.UUID
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
+data class ResolvedPlay(val multiplier: Double, val result: String, val details: String = "")
+
 class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val container = (application as VirCasApplication).container
+    private var seededRandom: SeededRandomProvider? = null
+    private var seededRandomSeed: Long? = null
 
     val balance: StateFlow<Long> = container.walletRepository.balance.stateIn(
         viewModelScope,
@@ -55,12 +71,121 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         emptyList()
     )
 
+    fun randomProvider(): RandomProvider {
+        val current = settings.value
+        if (current.secureRng) return SecureRandomProvider()
+        if (seededRandom == null || seededRandomSeed != current.debugSeed) {
+            seededRandomSeed = current.debugSeed
+            seededRandom = SeededRandomProvider(current.debugSeed)
+        }
+        return requireNotNull(seededRandom)
+    }
+
     fun completeOnboarding() = viewModelScope.launch { container.settingsRepository.completeOnboarding() }
 
     fun claimDailyReward(onResult: (DailyRewardClaim?) -> Unit = {}) = viewModelScope.launch {
         val claim = container.progressionRepository.claimDailyReward()
         if (claim != null) container.walletRepository.credit(claim.amount)
         onResult(claim)
+    }
+
+    fun playResolved(
+        game: String,
+        stake: Long,
+        resolver: (RandomProvider) -> ResolvedPlay,
+        onResult: (RoundReceipt?) -> Unit = {}
+    ) = viewModelScope.launch {
+        val wager = container.gameLedger.begin(game, stake)
+        if (wager == null) {
+            onResult(null)
+            return@launch
+        }
+        try {
+            val play = resolver(randomProvider())
+            val receipt = container.gameLedger.settle(
+                wager = wager,
+                multiplier = play.multiplier,
+                result = play.result,
+                details = play.details,
+                generatedSeed = fairnessSeed(),
+                clientSeed = settings.value.clientSeed
+            )
+            onResult(receipt)
+        } catch (error: Throwable) {
+            container.gameLedger.cancel(wager)
+            throw error
+        }
+    }
+
+    fun openCase(definition: CaseDefinition, onResult: (CaseOpeningResult?) -> Unit = {}) = viewModelScope.launch {
+        val wager = container.gameLedger.begin("Cases", definition.cost)
+        if (wager == null) {
+            onResult(null)
+            return@launch
+        }
+        try {
+            val result = CasesEngine(randomProvider()).open(definition)
+            val item = result.item
+            container.inventoryRepository.add(
+                InventoryItemEntity(
+                    id = UUID.randomUUID().toString(),
+                    templateId = item.id,
+                    name = item.name,
+                    weaponCategory = item.weaponCategory,
+                    rarity = item.rarity.name,
+                    marketValue = item.marketValue,
+                    previewKey = item.previewKey,
+                    acquiredAt = System.currentTimeMillis()
+                )
+            )
+            container.progressionRepository.recordCaseOpen()
+            container.gameLedger.settle(
+                wager,
+                multiplier = 0.0,
+                result = item.name,
+                details = "${definition.title} · ${item.rarity.name}",
+                generatedSeed = fairnessSeed(),
+                clientSeed = settings.value.clientSeed
+            )
+            onResult(result)
+        } catch (error: Throwable) {
+            container.gameLedger.cancel(wager)
+            throw error
+        }
+    }
+
+    fun placeVirtualBet(
+        event: VirtualEvent,
+        selection: MarketSelection,
+        stake: Long,
+        onResult: (Pair<RoundReceipt, SimulatedEventResult>?) -> Unit = {}
+    ) = viewModelScope.launch {
+        if (selection.eventId != event.id) {
+            onResult(null)
+            return@launch
+        }
+        val wager = container.gameLedger.begin("Virtual ${event.sport.name.lowercase()}", stake)
+        if (wager == null) {
+            onResult(null)
+            return@launch
+        }
+        try {
+            val result = SportsBettingEngine(randomProvider()).simulate(event)
+            val multiplier = if (result.winnerSelectionId == selection.id) selection.odds else 0.0
+            container.progressionRepository.recordVirtualBet()
+            val receipt = container.gameLedger.settle(
+                wager,
+                multiplier,
+                "${result.homeScore}:${result.awayScore}",
+                "${event.home} vs ${event.away} · ${selection.label}",
+                fairnessSeed(),
+                settings.value.clientSeed
+            )
+            onResult(receipt to result)
+        } catch (error: Throwable) {
+            container.gameLedger.cancel(wager)
+            throw error
+        }
     }
 
     fun sellInventoryItem(id: String, onResult: (Long?) -> Unit = {}) = viewModelScope.launch {
@@ -93,5 +218,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         container.inventoryRepository.clear()
         container.historyRepository.clear()
         container.fairnessRepository.clear()
+    }
+
+    private fun fairnessSeed(): String = if (settings.value.secureRng) {
+        UUID.randomUUID().toString().replace("-", "")
+    } else {
+        "debug-${settings.value.debugSeed}"
     }
 }
