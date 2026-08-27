@@ -31,11 +31,23 @@ import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
 
+enum class RouletteSpinPhase {
+    IDLE,
+    WHEEL_AND_BALL,
+    BALL_COAST,
+    POCKET_BOUNCE,
+    BALL_DROP,
+    SETTLED
+}
+
 @Composable
 internal fun RouletteWheelPanel(
     wheelRotation: Float,
     ballRotation: Float,
-    spinning: Boolean,
+    ballRadius: Float,
+    ballHop: Float,
+    ballDrop: Float,
+    phase: RouletteSpinPhase,
     result: Int?,
     modifier: Modifier = Modifier
 ) {
@@ -53,7 +65,10 @@ internal fun RouletteWheelPanel(
             RealRouletteWheel(
                 wheelRotation = wheelRotation,
                 ballRotation = ballRotation,
-                spinning = spinning,
+                ballRadius = ballRadius,
+                ballHop = ballHop,
+                ballDrop = ballDrop,
+                phase = phase,
                 modifier = Modifier.fillMaxWidth().aspectRatio(1f)
             )
             Surface(
@@ -62,10 +77,13 @@ internal fun RouletteWheelPanel(
                 border = BorderStroke(1.dp, Color(0xFF42684F))
             ) {
                 Text(
-                    text = when {
-                        spinning -> "BALL IN MOTION"
-                        result == null -> "PLACE YOUR BETS"
-                        else -> "$result · ${RouletteEngine.colorOf(result).name}"
+                    text = when (phase) {
+                        RouletteSpinPhase.WHEEL_AND_BALL -> "WHEEL SPINNING"
+                        RouletteSpinPhase.BALL_COAST -> "WHEEL STOPPED · BALL COASTING"
+                        RouletteSpinPhase.POCKET_BOUNCE -> "BALL IN THE POCKETS"
+                        RouletteSpinPhase.BALL_DROP -> "BALL DROPPING"
+                        RouletteSpinPhase.SETTLED -> result?.let { "$it · ${RouletteEngine.colorOf(it).name}" } ?: "RESULT"
+                        RouletteSpinPhase.IDLE -> result?.let { "$it · ${RouletteEngine.colorOf(it).name}" } ?: "PLACE YOUR BETS"
                     },
                     modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp),
                     color = if (result == 0) Color(0xFF5AD27A) else Color(0xFFF4DFB1),
@@ -80,7 +98,10 @@ internal fun RouletteWheelPanel(
 private fun RealRouletteWheel(
     wheelRotation: Float,
     ballRotation: Float,
-    spinning: Boolean,
+    ballRadius: Float,
+    ballHop: Float,
+    ballDrop: Float,
+    phase: RouletteSpinPhase,
     modifier: Modifier = Modifier
 ) {
     Canvas(modifier) {
@@ -90,10 +111,22 @@ private fun RealRouletteWheel(
         val innerRadius = radius * 0.51f
         val sweep = 360f / rouletteWheelOrder.size
 
-        drawCircle(Color(0xFF110C08), radius = radius * 1.04f, center = centerPoint)
-        drawCircle(Color(0xFFD1A64A), radius = radius, center = centerPoint, style = Stroke(radius * 0.035f))
-        drawCircle(Color(0xFF6D3518), radius = radius * 0.95f, center = centerPoint)
-        drawCircle(Color(0xFF2C160D), radius = radius * 0.87f, center = centerPoint)
+        drawCircle(Color(0xFF0C0907), radius = radius * 1.07f, center = centerPoint)
+        drawCircle(Color(0xFFD1A64A), radius = radius * 1.01f, center = centerPoint, style = Stroke(radius * 0.035f))
+        drawCircle(Color(0xFF6D3518), radius = radius * 0.96f, center = centerPoint)
+        drawCircle(Color(0xFF2C160D), radius = radius * 0.88f, center = centerPoint)
+        drawCircle(Color(0xFF160E09), radius = radius * 0.82f, center = centerPoint, style = Stroke(radius * 0.018f))
+
+        // Fixed brass deflectors around the outer ball track make the wheel read like a real roulette bowl.
+        repeat(8) { index ->
+            val angle = (index * 45f + 22.5f) * PI.toFloat() / 180f
+            val point = Offset(
+                centerPoint.x + cos(angle) * radius * 0.885f,
+                centerPoint.y + sin(angle) * radius * 0.885f
+            )
+            drawCircle(Color(0xFFD7AE55), radius * 0.018f, point)
+            drawCircle(Color(0xFF7C5522), radius * 0.009f, point)
+        }
 
         rotate(wheelRotation, centerPoint) {
             rouletteWheelOrder.forEachIndexed { index, number ->
@@ -122,6 +155,13 @@ private fun RealRouletteWheel(
                 )
             }
 
+            // A thin ring near the pocket mouths makes the ball's inward drop visually obvious.
+            drawCircle(
+                Color(0xFFB58C49),
+                radius = radius * 0.79f,
+                center = centerPoint,
+                style = Stroke(radius * 0.012f)
+            )
             drawCircle(Color(0xFF4C2513), radius = innerRadius, center = centerPoint)
             drawCircle(Color(0xFFBE8732), radius = innerRadius, center = centerPoint, style = Stroke(radius * 0.025f))
             drawCircle(Color(0xFF0B4F2A), radius = radius * 0.28f, center = centerPoint)
@@ -168,27 +208,49 @@ private fun RealRouletteWheel(
             )
         }
 
-        if (spinning) {
-            listOf(18f to 0.16f, 11f to 0.28f, 6f to 0.42f).forEach { (trail, alpha) ->
+        val effectiveBallRadius = radius * ballRadius + radius * 0.035f * ballHop
+        val showLongTrail = phase == RouletteSpinPhase.WHEEL_AND_BALL || phase == RouletteSpinPhase.BALL_COAST
+        val showShortTrail = phase == RouletteSpinPhase.POCKET_BOUNCE
+        if (showLongTrail) {
+            listOf(22f to 0.10f, 14f to 0.20f, 8f to 0.34f, 4f to 0.48f).forEach { (trail, alpha) ->
                 drawCircle(
                     Color.White.copy(alpha = alpha),
-                    radius * 0.027f,
-                    ballOffset(ballRotation + trail, radius * 0.88f)
+                    radius * 0.024f,
+                    ballOffset(ballRotation + trail, effectiveBallRadius)
+                )
+            }
+        } else if (showShortTrail) {
+            listOf(7f to 0.12f, 3f to 0.25f).forEach { (trail, alpha) ->
+                drawCircle(
+                    Color.White.copy(alpha = alpha),
+                    radius * 0.022f,
+                    ballOffset(ballRotation + trail, effectiveBallRadius)
                 )
             }
         }
 
-        val ball = ballOffset(ballRotation, radius * 0.88f)
+        val ball = ballOffset(ballRotation, effectiveBallRadius)
+        val ballScale = 1f + ballHop * 0.14f - ballDrop * 0.08f
+        val ballSize = radius * 0.031f * ballScale
+        val shadowOffset = radius * (0.012f - ballDrop * 0.004f)
         drawCircle(
-            Color(0x55000000),
-            radius * 0.037f,
-            ball + Offset(radius * 0.012f, radius * 0.012f)
+            Color(0x66000000),
+            ballSize * 1.22f,
+            ball + Offset(shadowOffset, shadowOffset)
         )
-        drawCircle(Color(0xFFF5F0E4), radius * 0.031f, ball)
+        drawCircle(Color(0xFFF1ECE0), ballSize, ball)
         drawCircle(
             Color.White,
-            radius * 0.015f,
-            ball + Offset(-radius * 0.008f, -radius * 0.008f)
+            ballSize * 0.48f,
+            ball + Offset(-ballSize * 0.25f, -ballSize * 0.25f)
         )
+        if (phase == RouletteSpinPhase.BALL_DROP || phase == RouletteSpinPhase.SETTLED) {
+            drawCircle(
+                Color.White.copy(alpha = 0.24f * ballDrop),
+                ballSize * 1.55f,
+                ball,
+                style = Stroke(width = radius * 0.006f)
+            )
+        }
     }
 }
