@@ -116,6 +116,7 @@ private fun VirCasNavigation(appViewModel: AppViewModel) {
                     "hilo" -> HiLoGameScreen(appViewModel, back)
                     "towers" -> TowersGameScreen(appViewModel, back)
                     "ladder" -> LadderGameScreen(appViewModel, back)
+                    "horse" -> HorseRacingGameScreen(appViewModel, back)
                     else -> GamePlayScreen(gameId = gameId, viewModel = appViewModel, onBack = back)
                 }
             }
