@@ -109,7 +109,19 @@ data class EsportsEvent(
     val matchWinnerA: Double,
     val matchWinnerB: Double,
     val mapHandicapA: Double,
-    val totalMapsOver: Double
+    val totalMapsOver: Double,
+    val mapWinnerA: Double = matchWinnerA,
+    val mapWinnerB: Double = matchWinnerB,
+    val totalMapsUnder: Double = 2.0,
+    val mapHandicapB: Double = 1.65
+)
+
+data class EsportsSimulationResult(
+    val eventId: String,
+    val mapsA: Int,
+    val mapsB: Int,
+    val mapOneWinner: String,
+    val winningSelectionIds: Set<String>
 )
 
 class EsportsBettingEngine(private val random: RandomProvider) {
@@ -121,17 +133,66 @@ class EsportsBettingEngine(private val random: RandomProvider) {
             val a = 0.8 + random.nextDouble() * 0.5
             val b = 0.8 + random.nextDouble() * 0.5
             val sum = a + b
+            val matchA = round2(sum / a / 0.95)
+            val matchB = round2(sum / b / 0.95)
             EsportsEvent(
                 id = "esports_$index",
                 discipline = games[index % games.size],
                 teamA = pair[0],
                 teamB = pair[1],
-                matchWinnerA = round2(sum / a / 0.95),
-                matchWinnerB = round2(sum / b / 0.95),
+                matchWinnerA = matchA,
+                matchWinnerB = matchB,
                 mapHandicapA = round2(1.7 + random.nextDouble()),
-                totalMapsOver = round2(1.6 + random.nextDouble())
+                totalMapsOver = round2(1.6 + random.nextDouble()),
+                mapWinnerA = round2((matchA * 0.92).coerceAtLeast(1.2)),
+                mapWinnerB = round2((matchB * 0.92).coerceAtLeast(1.2)),
+                totalMapsUnder = round2(1.65 + random.nextDouble() * 0.8),
+                mapHandicapB = round2(1.7 + random.nextDouble())
             )
         }
+    }
+
+    fun selections(event: EsportsEvent): List<MarketSelection> = listOf(
+        MarketSelection("${event.id}:match:a", event.id, "Match · ${event.teamA}", event.matchWinnerA),
+        MarketSelection("${event.id}:match:b", event.id, "Match · ${event.teamB}", event.matchWinnerB),
+        MarketSelection("${event.id}:map1:a", event.id, "Map 1 · ${event.teamA}", event.mapWinnerA),
+        MarketSelection("${event.id}:map1:b", event.id, "Map 1 · ${event.teamB}", event.mapWinnerB),
+        MarketSelection("${event.id}:maps:over", event.id, "Total maps Over 2.5", event.totalMapsOver),
+        MarketSelection("${event.id}:maps:under", event.id, "Total maps Under 2.5", event.totalMapsUnder),
+        MarketSelection("${event.id}:handicap:a", event.id, "${event.teamA} -1.5 maps", event.mapHandicapA),
+        MarketSelection("${event.id}:handicap:b", event.id, "${event.teamB} +1.5 maps", event.mapHandicapB)
+    )
+
+    fun simulate(event: EsportsEvent): EsportsSimulationResult {
+        val aWeight = 1.0 / event.matchWinnerA
+        val bWeight = 1.0 / event.matchWinnerB
+        val aWinsMatch = random.nextDouble() < aWeight / (aWeight + bWeight)
+        val sweep = random.nextDouble() < 0.45
+        val mapsA = when {
+            aWinsMatch -> 2
+            sweep -> 0
+            else -> 1
+        }
+        val mapsB = when {
+            !aWinsMatch -> 2
+            sweep -> 0
+            else -> 1
+        }
+        val mapOneA = random.nextDouble() < aWeight / (aWeight + bWeight)
+        val totalMaps = mapsA + mapsB
+        val winning = buildSet {
+            add("${event.id}:match:${if (aWinsMatch) "a" else "b"}")
+            add("${event.id}:map1:${if (mapOneA) "a" else "b"}")
+            add("${event.id}:maps:${if (totalMaps == 3) "over" else "under"}")
+            if (mapsA - mapsB >= 2) add("${event.id}:handicap:a") else add("${event.id}:handicap:b")
+        }
+        return EsportsSimulationResult(
+            eventId = event.id,
+            mapsA = mapsA,
+            mapsB = mapsB,
+            mapOneWinner = if (mapOneA) event.teamA else event.teamB,
+            winningSelectionIds = winning
+        )
     }
 
     private fun round2(value: Double) = round(value * 100.0) / 100.0
@@ -183,6 +244,10 @@ class HorseRacingEngine(private val random: RandomProvider) {
             Horse("horse_$index", name, round2((115.0 / power).coerceIn(1.25, 12.0)), rating, form, speed, stamina)
         }
         return HorseRace(id, horses)
+    }
+
+    fun selections(race: HorseRace): List<MarketSelection> = race.horses.map { horse ->
+        MarketSelection("${race.id}:horse:${horse.id}", race.id, horse.name, horse.odds)
     }
 
     fun simulate(race: HorseRace): HorseRaceResult {
