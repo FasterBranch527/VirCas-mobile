@@ -114,7 +114,7 @@ private fun VirCasNavigation(appViewModel: AppViewModel) {
                     "dice" -> DiceGameScreen(appViewModel, back)
                     "coinflip" -> CoinflipGameScreen(appViewModel, back)
                     "wheel" -> WheelGameScreen(appViewModel, back)
-                    "roulette" -> RouletteGameScreen(appViewModel, back)
+                    "roulette" -> RealisticRouletteGameScreen(appViewModel, back)
                     "slots" -> SlotsGameScreen(appViewModel, back)
                     "plinko" -> PlinkoGameScreen(appViewModel, back)
                     "mines" -> MinesGameScreen(appViewModel, back)
