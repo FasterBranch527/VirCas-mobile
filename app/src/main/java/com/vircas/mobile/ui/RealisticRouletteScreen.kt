@@ -2,7 +2,9 @@ package com.vircas.mobile.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
@@ -56,6 +58,9 @@ fun RealisticRouletteGameScreen(viewModel: AppViewModel, onBack: () -> Unit) {
     val settings by viewModel.settings.collectAsState()
     val wheelRotation = remember { Animatable(0f) }
     val ballRotation = remember { Animatable(-72f) }
+    val ballRadius = remember { Animatable(0.88f) }
+    val ballHop = remember { Animatable(0f) }
+    val ballDrop = remember { Animatable(0f) }
 
     var selectedChip by remember { mutableStateOf(100L) }
     var bets by remember { mutableStateOf<Map<RouletteBet, List<Long>>>(emptyMap()) }
@@ -63,6 +68,7 @@ fun RealisticRouletteGameScreen(viewModel: AppViewModel, onBack: () -> Unit) {
     var pending by remember { mutableStateOf<RoulettePendingRound?>(null) }
     var spinning by remember { mutableStateOf(false) }
     var spinSerial by remember { mutableIntStateOf(0) }
+    var spinPhase by remember { mutableStateOf(RouletteSpinPhase.IDLE) }
     var lastResult by remember { mutableStateOf<Int?>(null) }
     var status by remember {
         mutableStateOf("Tap a cell to place a chip · hold it to remove the last chip")
@@ -102,6 +108,7 @@ fun RealisticRouletteGameScreen(viewModel: AppViewModel, onBack: () -> Unit) {
         if (round != null) {
             pending = null
             spinning = false
+            spinPhase = RouletteSpinPhase.IDLE
             viewModel.settleWager(
                 wager = round.wager,
                 multiplier = round.payoutMultiplier,
@@ -118,32 +125,159 @@ fun RealisticRouletteGameScreen(viewModel: AppViewModel, onBack: () -> Unit) {
         val round = pending ?: return@LaunchedEffect
         if (!spinning) return@LaunchedEffect
 
-        val index = rouletteWheelOrder.indexOf(round.number).coerceAtLeast(0)
+        val reduced = !settings.animations || settings.reducedMotion
+        val wheelDuration = if (reduced) 420 else 2_800
+        val coastDuration = if (reduced) 260 else 1_150
+        val hopDuration = if (reduced) 70 else 170
+        val dropDuration = if (reduced) 100 else 260
         val sweep = 360f / rouletteWheelOrder.size
-        val duration = if (!settings.animations || settings.reducedMotion) 650 else 4_400
-        val finalWheel = if (duration < 1_000) 360f else 2_020f + ((round.number * 17) % 130)
-        val pocketAngle = -90f + index * sweep + sweep / 2f + (finalWheel % 360f)
-        val finalBall = pocketAngle - if (duration < 1_000) 360f else 2_520f
+        val winningIndex = rouletteWheelOrder.indexOf(round.number).coerceAtLeast(0)
+        val wheelStart = wheelRotation.value
+        val ballStart = ballRotation.value
+        val wheelTurns = if (reduced) 1f else 5f
+        val ballTurns = if (reduced) 1.5f else 7f
+        val wheelOffset = 74f + ((round.number * 29 + spinSerial * 11) % 156)
+        val finalWheel = wheelStart + wheelTurns * 360f + wheelOffset
 
-        wheelRotation.snapTo(0f)
-        ballRotation.snapTo(-62f)
+        fun pocketWorldAngle(index: Int): Float =
+            -90f + index * sweep + sweep / 2f + finalWheel
+
+        suspend fun hopToPocket(index: Int, radial: Float, durationMs: Int) {
+            val target = previousRouletteEquivalentAngle(
+                from = ballRotation.value,
+                targetWorld = pocketWorldAngle(index),
+                extraTurns = 0
+            )
+            coroutineScope {
+                launch {
+                    ballRotation.animateTo(
+                        targetValue = target,
+                        animationSpec = tween(durationMillis = durationMs, easing = LinearOutSlowInEasing)
+                    )
+                }
+                launch {
+                    ballRadius.animateTo(
+                        targetValue = radial,
+                        animationSpec = tween(durationMillis = durationMs, easing = FastOutSlowInEasing)
+                    )
+                }
+                launch {
+                    val up = (durationMs * 0.42f).toInt().coerceAtLeast(1)
+                    val down = (durationMs - up).coerceAtLeast(1)
+                    ballHop.animateTo(
+                        targetValue = 1f,
+                        animationSpec = tween(durationMillis = up, easing = FastOutSlowInEasing)
+                    )
+                    ballHop.animateTo(
+                        targetValue = 0f,
+                        animationSpec = tween(durationMillis = down, easing = FastOutSlowInEasing)
+                    )
+                }
+            }
+        }
+
+        ballHop.snapTo(0f)
+        ballDrop.snapTo(0f)
+        spinPhase = RouletteSpinPhase.WHEEL_AND_BALL
+        status = "NO MORE BETS · wheel and ball in motion"
+
+        // Phase 1: wheel and ball move together, but the ball keeps linear speed while the wheel decelerates.
+        // This coroutine completes only when the wheel has fully stopped.
         coroutineScope {
             launch {
                 wheelRotation.animateTo(
                     targetValue = finalWheel,
-                    animationSpec = tween(durationMillis = duration, easing = FastOutSlowInEasing)
+                    animationSpec = tween(
+                        durationMillis = wheelDuration,
+                        easing = CubicBezierEasing(0.10f, 0.72f, 0.18f, 1f)
+                    )
                 )
             }
             launch {
+                coroutineScope {
+                    launch {
+                        ballRotation.animateTo(
+                            targetValue = ballStart - ballTurns * 360f,
+                            animationSpec = tween(durationMillis = wheelDuration, easing = LinearEasing)
+                        )
+                    }
+                    launch {
+                        ballRadius.animateTo(
+                            targetValue = 0.91f,
+                            animationSpec = tween(
+                                durationMillis = (wheelDuration * 0.24f).toInt().coerceAtLeast(1),
+                                easing = FastOutSlowInEasing
+                            )
+                        )
+                    }
+                }
+            }
+        }
+
+        // Phase 2: the wheel is now stationary. The ball keeps running around the outer track
+        // for another turn and gradually spirals toward the pocket ring.
+        spinPhase = RouletteSpinPhase.BALL_COAST
+        status = "WHEEL STOPPED · ball still rolling"
+        val approachIndex = (winningIndex + 4) % rouletteWheelOrder.size
+        val approachTarget = previousRouletteEquivalentAngle(
+            from = ballRotation.value,
+            targetWorld = pocketWorldAngle(approachIndex),
+            extraTurns = if (reduced) 0 else 1
+        )
+        coroutineScope {
+            launch {
                 ballRotation.animateTo(
-                    targetValue = finalBall,
-                    animationSpec = tween(durationMillis = duration, easing = LinearOutSlowInEasing)
+                    targetValue = approachTarget,
+                    animationSpec = tween(durationMillis = coastDuration, easing = LinearOutSlowInEasing)
+                )
+            }
+            launch {
+                ballRadius.animateTo(
+                    targetValue = 0.815f,
+                    animationSpec = tween(durationMillis = coastDuration, easing = LinearOutSlowInEasing)
                 )
             }
         }
 
+        // Phase 3: deterministic neighboring-pocket hops. Since the ball travels counter-clockwise,
+        // it crosses +3, +2, +1 and finally the winning pocket in the physical wheel order.
+        spinPhase = RouletteSpinPhase.POCKET_BOUNCE
+        status = "BALL IN THE POCKETS · ${round.number} is locked"
+        hopToPocket((winningIndex + 3) % rouletteWheelOrder.size, 0.800f, hopDuration)
+        hopToPocket((winningIndex + 2) % rouletteWheelOrder.size, 0.785f, hopDuration)
+        hopToPocket((winningIndex + 1) % rouletteWheelOrder.size, 0.770f, hopDuration)
+        hopToPocket(winningIndex, 0.752f, if (reduced) hopDuration else 210)
+
+        // Phase 4: the ball is already centered over the winning slot and now visibly drops into it.
+        spinPhase = RouletteSpinPhase.BALL_DROP
+        status = "BALL DROPPING · ${round.number} ${round.color.name}"
+        coroutineScope {
+            launch {
+                ballRadius.animateTo(
+                    targetValue = 0.715f,
+                    animationSpec = tween(durationMillis = dropDuration, easing = FastOutSlowInEasing)
+                )
+            }
+            launch {
+                ballDrop.animateTo(
+                    targetValue = 1f,
+                    animationSpec = tween(durationMillis = dropDuration, easing = FastOutSlowInEasing)
+                )
+            }
+            launch {
+                val up = (dropDuration / 3).coerceAtLeast(1)
+                val down = (dropDuration - up).coerceAtLeast(1)
+                ballHop.animateTo(0.45f, tween(durationMillis = up, easing = FastOutSlowInEasing))
+                ballHop.animateTo(0f, tween(durationMillis = down, easing = FastOutSlowInEasing))
+            }
+        }
+
         if (pending?.wager?.id == round.wager.id) {
+            // Keep animation values numerically small between rounds without changing their visual angle.
+            wheelRotation.snapTo(normalizeRouletteAngle(wheelRotation.value))
+            ballRotation.snapTo(normalizeRouletteAngle(ballRotation.value))
             lastResult = round.number
+            spinPhase = RouletteSpinPhase.SETTLED
             status = if (round.payout > 0L) {
                 "${round.number} ${round.color.name} · WIN ${formatRouletteVc(round.payout)}"
             } else {
@@ -189,7 +323,10 @@ fun RealisticRouletteGameScreen(viewModel: AppViewModel, onBack: () -> Unit) {
                     RouletteWheelPanel(
                         wheelRotation = wheelRotation.value,
                         ballRotation = ballRotation.value,
-                        spinning = spinning,
+                        ballRadius = ballRadius.value,
+                        ballHop = ballHop.value,
+                        ballDrop = ballDrop.value,
+                        phase = spinPhase,
                         result = lastResult,
                         modifier = Modifier.width(330.dp)
                     )
@@ -211,7 +348,10 @@ fun RealisticRouletteGameScreen(viewModel: AppViewModel, onBack: () -> Unit) {
                     RouletteWheelPanel(
                         wheelRotation = wheelRotation.value,
                         ballRotation = ballRotation.value,
-                        spinning = spinning,
+                        ballRadius = ballRadius.value,
+                        ballHop = ballHop.value,
+                        ballDrop = ballDrop.value,
+                        phase = spinPhase,
                         result = lastResult,
                         modifier = Modifier.width(wheelWidth)
                     )
@@ -314,6 +454,19 @@ fun RealisticRouletteGameScreen(viewModel: AppViewModel, onBack: () -> Unit) {
             )
         }
     }
+}
+
+private fun normalizeRouletteAngle(angle: Float): Float {
+    val value = angle % 360f
+    return if (value < 0f) value + 360f else value
+}
+
+private fun previousRouletteEquivalentAngle(from: Float, targetWorld: Float, extraTurns: Int): Float {
+    val fromNormalized = normalizeRouletteAngle(from)
+    val targetNormalized = normalizeRouletteAngle(targetWorld)
+    var delta = (fromNormalized - targetNormalized + 360f) % 360f
+    if (delta < 0.001f) delta = 360f
+    return from - delta - extraTurns.coerceAtLeast(0) * 360f
 }
 
 @Composable
