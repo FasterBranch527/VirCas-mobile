@@ -33,7 +33,11 @@ data class UserProgress(
 ) {
     val level: Int get() = 1 + xp / 1_000
     val levelXp: Int get() = xp % 1_000
-    val winRate: Double get() = if (gamesPlayed == 0) 0.0 else totalWins * 100.0 / gamesPlayed
+    val winRate: Double
+        get() {
+            val resolved = totalWins + totalLosses
+            return if (resolved == 0) 0.0 else totalWins * 100.0 / resolved
+        }
 }
 
 data class DailyRewardClaim(val day: Int, val amount: Long, val streak: Int)
@@ -114,16 +118,18 @@ class ProgressionRepository(private val context: Context) {
         context.progressionDataStore.edit { p ->
             resetDailyIfNeeded(p, today)
             val won = payout > stake
+            val lost = payout < stake
             p[Keys.gamesPlayed] = (p[Keys.gamesPlayed] ?: 0) + 1
             p[Keys.xp] = (p[Keys.xp] ?: 0) + xpReward
             p[Keys.totalWagered] = (p[Keys.totalWagered] ?: 0L) + stake
             p[Keys.totalWon] = (p[Keys.totalWon] ?: 0L) + payout
-            p[Keys.biggestWin] = maxOf(p[Keys.biggestWin] ?: 0L, payout)
             if (won) {
+                val profit = payout - stake
+                p[Keys.biggestWin] = maxOf(p[Keys.biggestWin] ?: 0L, profit)
                 p[Keys.wins] = (p[Keys.wins] ?: 0) + 1
                 p[Keys.winStreak] = (p[Keys.winStreak] ?: 0) + 1
                 p[Keys.dailyWins] = (p[Keys.dailyWins] ?: 0) + 1
-            } else {
+            } else if (lost) {
                 p[Keys.losses] = (p[Keys.losses] ?: 0) + 1
                 p[Keys.winStreak] = 0
             }
