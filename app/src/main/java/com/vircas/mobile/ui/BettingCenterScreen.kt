@@ -36,7 +36,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.vircas.mobile.game.betting.EsportsMarketEngine
 import com.vircas.mobile.game.betting.UniversalBetSelection
 import com.vircas.mobile.game.betting.UniversalBetSlip
 import com.vircas.mobile.game.engines.EsportsBettingEngine
@@ -56,7 +55,6 @@ fun BettingCenterScreen(viewModel: AppViewModel) {
     val catalogRandom = remember { viewModel.randomProvider() }
     val sportsEngine = remember { SportsBettingEngine(catalogRandom) }
     val esportsEngine = remember { EsportsBettingEngine(catalogRandom) }
-    val esportsMarkets = remember { EsportsMarketEngine(catalogRandom) }
     val horseEngine = remember { HorseRacingEngine(catalogRandom) }
     val sportsEvents = remember { sportsEngine.generateEvents() }
     val esportsEvents = remember { esportsEngine.generate() }
@@ -177,7 +175,7 @@ fun BettingCenterScreen(viewModel: AppViewModel) {
                     BettingEventCard(
                         eyebrow = event.discipline,
                         title = "${event.teamA} vs ${event.teamB}",
-                        markets = esportsMarkets.selections(event),
+                        markets = esportsEngine.selections(event),
                         selectedIds = selections.mapTo(mutableSetOf()) { it.id },
                         onMarket = { market -> toggle(UniversalBetSelection.Esports(event, market)) }
                     )
