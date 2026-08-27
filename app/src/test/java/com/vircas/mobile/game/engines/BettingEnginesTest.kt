@@ -22,11 +22,30 @@ class BettingEnginesTest {
         assertTrue(BetSlipEngine().settle(slip, setOf(selections.first().id)) > 0)
     }
 
-    @Test fun horseWinnerIsPrecomputedFromSimulationModel() {
+    @Test fun esportsMarketsResolveFromOnePrecomputedMatch() {
+        val engine = EsportsBettingEngine(ZeroRandom)
+        val event = engine.generate().first()
+        val selections = engine.selections(event)
+        val result = engine.simulate(event)
+
+        assertEquals(8, selections.size)
+        assertEquals(2, result.mapsA)
+        assertEquals(0, result.mapsB)
+        assertTrue("${event.id}:match:a" in result.winningSelectionIds)
+        assertTrue("${event.id}:map1:a" in result.winningSelectionIds)
+        assertTrue("${event.id}:maps:under" in result.winningSelectionIds)
+        assertTrue("${event.id}:handicap:a" in result.winningSelectionIds)
+    }
+
+    @Test fun horseWinnerAndSharedSelectionsArePrecomputed() {
         val engine = HorseRacingEngine(ZeroRandom)
         val race = engine.generateRace(count = 6)
+        val selections = engine.selections(race)
         val result = engine.simulate(race)
+
         assertEquals(6, result.finishOrder.distinct().size)
+        assertEquals(6, selections.size)
         assertTrue(result.winnerId in race.horses.map { it.id })
+        assertTrue(selections.any { it.id == "${race.id}:horse:${result.winnerId}" })
     }
 }
