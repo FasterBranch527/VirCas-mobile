@@ -18,7 +18,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -26,6 +25,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.vircas.mobile.ui.theme.VirCasTheme
 
 private data class NavItem(val route: String, val label: String, val icon: ImageVector)
 
@@ -40,12 +40,17 @@ private val navItems = listOf(
 @Composable
 fun VirCasApp(appViewModel: AppViewModel = viewModel()) {
     val settings by appViewModel.settings.collectAsState()
-
-    if (!settings.onboardingComplete) {
-        OnboardingScreen(onComplete = appViewModel::completeOnboarding)
-        return
+    VirCasTheme(darkTheme = settings.darkMode) {
+        if (!settings.onboardingComplete) {
+            OnboardingScreen(onComplete = appViewModel::completeOnboarding)
+        } else {
+            VirCasNavigation(appViewModel)
+        }
     }
+}
 
+@Composable
+private fun VirCasNavigation(appViewModel: AppViewModel) {
     val nav = rememberNavController()
     val route = nav.currentBackStackEntryAsState().value?.destination?.route
     val showBottomBar = route in navItems.map { it.route }
@@ -54,7 +59,7 @@ fun VirCasApp(appViewModel: AppViewModel = viewModel()) {
         containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {
             if (showBottomBar) {
-                NavigationBar(containerColor = Color(0xFF0D1320)) {
+                NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
                     navItems.forEach { item ->
                         NavigationBarItem(
                             selected = route == item.route,
