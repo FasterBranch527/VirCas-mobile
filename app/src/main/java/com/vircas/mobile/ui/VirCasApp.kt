@@ -125,7 +125,7 @@ private fun VirCasNavigation(appViewModel: AppViewModel) {
                     else -> GamePlayScreen(gameId = gameId, viewModel = appViewModel, onBack = back)
                 }
             }
-            composable("cases") { CasesHubScreen(appViewModel, onBack = { nav.popBackStack() }) }
+            composable("cases") { AnimatedCasesHubScreen(appViewModel, onBack = { nav.popBackStack() }) }
             composable("history") { HistoryHubScreen(appViewModel, onBack = { nav.popBackStack() }) }
             composable("fairness") { FairnessHubScreen(appViewModel, onBack = { nav.popBackStack() }) }
             composable("settings") { AdvancedSettingsScreen(appViewModel, onBack = { nav.popBackStack() }) }
