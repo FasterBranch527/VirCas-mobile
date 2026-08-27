@@ -27,7 +27,9 @@ data class UserProgress(
     val dailyWins: Int = 0,
     val dailyCases: Int = 0,
     val dailyBets: Int = 0,
-    val dailyDistinctGames: Set<String> = emptySet()
+    val dailyDistinctGames: Set<String> = emptySet(),
+    val claimedMissionIds: Set<String> = emptySet(),
+    val claimedAchievementIds: Set<String> = emptySet()
 ) {
     val level: Int get() = 1 + xp / 1_000
     val levelXp: Int get() = xp % 1_000
@@ -41,7 +43,8 @@ data class Achievement(
     val title: String,
     val description: String,
     val xpReward: Int,
-    val unlocked: Boolean
+    val unlocked: Boolean,
+    val claimed: Boolean
 )
 
 data class DailyMission(
@@ -50,7 +53,8 @@ data class DailyMission(
     val progress: Int,
     val target: Int,
     val coinReward: Long,
-    val xpReward: Int
+    val xpReward: Int,
+    val claimed: Boolean
 ) {
     val complete: Boolean get() = progress >= target
 }
@@ -74,6 +78,8 @@ class ProgressionRepository(private val context: Context) {
         val dailyCases = intPreferencesKey("daily_cases")
         val dailyBets = intPreferencesKey("daily_bets")
         val dailyDistinctGames = stringPreferencesKey("daily_distinct_games")
+        val claimedMissions = stringPreferencesKey("claimed_missions")
+        val claimedAchievements = stringPreferencesKey("claimed_achievements")
     }
 
     val progress: Flow<UserProgress> = context.progressionDataStore.data.map { p ->
@@ -96,7 +102,9 @@ class ProgressionRepository(private val context: Context) {
             dailyWins = if (dailyIsCurrent) p[Keys.dailyWins] ?: 0 else 0,
             dailyCases = if (dailyIsCurrent) p[Keys.dailyCases] ?: 0 else 0,
             dailyBets = if (dailyIsCurrent) p[Keys.dailyBets] ?: 0 else 0,
-            dailyDistinctGames = if (dailyIsCurrent) decodeSet(p[Keys.dailyDistinctGames].orEmpty()) else emptySet()
+            dailyDistinctGames = if (dailyIsCurrent) decodeSet(p[Keys.dailyDistinctGames].orEmpty()) else emptySet(),
+            claimedMissionIds = if (dailyIsCurrent) decodeSet(p[Keys.claimedMissions].orEmpty()) else emptySet(),
+            claimedAchievementIds = decodeSet(p[Keys.claimedAchievements].orEmpty())
         )
     }
 
@@ -148,20 +156,48 @@ class ProgressionRepository(private val context: Context) {
         return claim
     }
 
+    suspend fun claimMission(mission: DailyMission): Long? {
+        if (!mission.complete || mission.claimed) return null
+        val today = LocalDate.now().toEpochDay()
+        var reward: Long? = null
+        context.progressionDataStore.edit { p ->
+            resetDailyIfNeeded(p, today)
+            val claimed = decodeSet(p[Keys.claimedMissions].orEmpty()).toMutableSet()
+            if (!claimed.add(mission.id)) return@edit
+            p[Keys.claimedMissions] = encodeSet(claimed)
+            p[Keys.xp] = (p[Keys.xp] ?: 0) + mission.xpReward
+            reward = mission.coinReward
+        }
+        return reward
+    }
+
+    suspend fun claimAchievement(achievement: Achievement): Boolean {
+        if (!achievement.unlocked || achievement.claimed) return false
+        var awarded = false
+        context.progressionDataStore.edit { p ->
+            val claimed = decodeSet(p[Keys.claimedAchievements].orEmpty()).toMutableSet()
+            if (!claimed.add(achievement.id)) return@edit
+            p[Keys.claimedAchievements] = encodeSet(claimed)
+            p[Keys.xp] = (p[Keys.xp] ?: 0) + achievement.xpReward
+            awarded = true
+        }
+        return awarded
+    }
+
     fun achievements(progress: UserProgress): List<Achievement> = listOf(
-        Achievement("first_win", "First Win", "Win your first round", 100, progress.totalWins >= 1),
-        Achievement("five_wins", "On a Roll", "Win 5 games", 150, progress.totalWins >= 5),
-        Achievement("hundred_games", "Arcade Regular", "Play 100 rounds", 400, progress.gamesPlayed >= 100),
-        Achievement("high_roller", "High Roller", "Wager 100,000 VC", 300, progress.totalWagered >= 100_000),
-        Achievement("ten_streak", "Hot Hand", "Reach a 10 game win streak", 300, progress.winStreak >= 10)
+        Achievement("first_win", "First Win", "Win your first round", 100, progress.totalWins >= 1, "first_win" in progress.claimedAchievementIds),
+        Achievement("five_wins", "On a Roll", "Win 5 games", 150, progress.totalWins >= 5, "five_wins" in progress.claimedAchievementIds),
+        Achievement("hundred_games", "Arcade Regular", "Play 100 rounds", 400, progress.gamesPlayed >= 100, "hundred_games" in progress.claimedAchievementIds),
+        Achievement("high_roller", "High Roller", "Wager 100,000 VC", 300, progress.totalWagered >= 100_000, "high_roller" in progress.claimedAchievementIds),
+        Achievement("ten_streak", "Hot Hand", "Reach a 10 game win streak", 300, progress.winStreak >= 10, "ten_streak" in progress.claimedAchievementIds)
     )
 
     fun missions(progress: UserProgress): List<DailyMission> = listOf(
-        DailyMission("play5", "Play 5 rounds", progress.dailyGames, 5, 700, 75),
-        DailyMission("win3", "Win 3 rounds", progress.dailyWins, 3, 900, 100),
-        DailyMission("cases2", "Open 2 cases", progress.dailyCases, 2, 1_000, 100),
-        DailyMission("bets5", "Place 5 virtual bets", progress.dailyBets, 5, 1_000, 100),
-        DailyMission("variety3", "Play 3 different games", progress.dailyDistinctGames.size, 3, 1_200, 125)
+        DailyMission("play5", "Play 5 rounds", progress.dailyGames, 5, 700, 75, "play5" in progress.claimedMissionIds),
+        DailyMission("win3", "Win 3 rounds", progress.dailyWins, 3, 900, 100, "win3" in progress.claimedMissionIds),
+        DailyMission("cases2", "Open 2 cases", progress.dailyCases, 2, 1_000, 100, "cases2" in progress.claimedMissionIds),
+        DailyMission("bets5", "Place 5 virtual bets", progress.dailyBets, 5, 1_000, 100, "bets5" in progress.claimedMissionIds),
+        DailyMission("variety3", "Play 3 different games", progress.dailyDistinctGames.size, 3, 1_200, 125, "variety3" in progress.claimedMissionIds)
     )
 
     suspend fun reset() = context.progressionDataStore.edit { it.clear() }
@@ -182,6 +218,7 @@ class ProgressionRepository(private val context: Context) {
         p[Keys.dailyCases] = 0
         p[Keys.dailyBets] = 0
         p[Keys.dailyDistinctGames] = ""
+        p[Keys.claimedMissions] = ""
     }
 
     private fun decodeCounts(value: String): Map<String, Int> = value.split(';').mapNotNull { token ->
