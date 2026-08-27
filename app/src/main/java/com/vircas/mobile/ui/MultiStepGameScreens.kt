@@ -11,14 +11,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material3.Button
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -29,6 +27,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -109,7 +108,7 @@ private fun parseStake(value: String): Long = value.toLongOrNull()?.takeIf { it 
 
 @Composable
 fun MinesGameScreen(viewModel: AppViewModel, onBack: () -> Unit) {
-    val balance by viewModel.balance.collectAsStateCompat()
+    val balance by viewModel.balance.collectAsState()
     var stake by remember { mutableStateOf("1000") }
     var mineCount by remember { mutableIntStateOf(3) }
     var wager by remember { mutableStateOf<ActiveWager?>(null) }
@@ -128,45 +127,31 @@ fun MinesGameScreen(viewModel: AppViewModel, onBack: () -> Unit) {
     MultiStepShell("Mines", balance, ::leave) {
         StakeInput(stake, wager == null) { stake = it }
         Text("Mines: $mineCount", fontWeight = FontWeight.Bold)
-        Slider(
-            value = mineCount.toFloat(),
-            onValueChange = { if (wager == null) mineCount = it.toInt() },
-            valueRange = 1f..10f,
-            steps = 8
-        )
-
+        Slider(value = mineCount.toFloat(), onValueChange = { if (wager == null) mineCount = it.toInt() }, valueRange = 1f..10f, steps = 8)
         if (wager == null) {
-            Button(
-                onClick = {
-                    viewModel.beginWager("Mines", parseStake(stake)) { started ->
-                        if (started == null) {
-                            message = "Could not start: check stake and balance."
-                        } else {
-                            val createdEngine = MinesEngine(viewModel.randomProvider())
-                            wager = started
-                            engine = createdEngine
-                            round = createdEngine.newRound(mineCount)
-                            multiplier = 1.0
-                            message = "Round live. Reveal a tile."
-                        }
+            Button(onClick = {
+                viewModel.beginWager("Mines", parseStake(stake)) { started ->
+                    if (started == null) message = "Could not start: check stake and balance."
+                    else {
+                        val created = MinesEngine(viewModel.randomProvider())
+                        wager = started
+                        engine = created
+                        round = created.newRound(mineCount)
+                        multiplier = 1.0
+                        message = "Round live. Reveal a tile."
                     }
-                },
-                modifier = Modifier.fillMaxWidth()
-            ) { Text("START ROUND") }
+                }
+            }, modifier = Modifier.fillMaxWidth()) { Text("START ROUND") }
         } else {
-            Button(
-                onClick = {
-                    val active = wager ?: return@Button
-                    viewModel.settleWager(active, multiplier, "Cash out", "${round?.opened?.size ?: 0} safe tiles")
-                    message = "Cashed out at ${"%.2f".format(multiplier)}x."
-                    wager = null
-                    engine = null
-                    round = null
-                },
-                modifier = Modifier.fillMaxWidth()
-            ) { Text("CASH OUT ${"%.2f".format(multiplier)}x") }
+            Button(onClick = {
+                val active = wager ?: return@Button
+                viewModel.settleWager(active, multiplier, "Cash out", "${round?.opened?.size ?: 0} safe tiles")
+                message = "Cashed out at ${"%.2f".format(multiplier)}x."
+                wager = null
+                engine = null
+                round = null
+            }, modifier = Modifier.fillMaxWidth()) { Text("CASH OUT ${"%.2f".format(multiplier)}x") }
         }
-
         val currentRound = round
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             repeat(5) { rowIndex ->
@@ -207,7 +192,7 @@ fun MinesGameScreen(viewModel: AppViewModel, onBack: () -> Unit) {
                             enabled = wager != null && !opened,
                             modifier = Modifier.size(58.dp),
                             contentPadding = PaddingValues(0.dp)
-                        ) { Text(if (opened) "SAFE" else "?") }
+                        ) { Text(if (opened) "✓" else "?") }
                     }
                 }
             }
@@ -218,7 +203,7 @@ fun MinesGameScreen(viewModel: AppViewModel, onBack: () -> Unit) {
 
 @Composable
 fun CrashGameScreen(viewModel: AppViewModel, onBack: () -> Unit) {
-    val balance by viewModel.balance.collectAsStateCompat()
+    val balance by viewModel.balance.collectAsState()
     var stake by remember { mutableStateOf("1000") }
     var wager by remember { mutableStateOf<ActiveWager?>(null) }
     var round by remember { mutableStateOf<CrashRound?>(null) }
@@ -259,37 +244,30 @@ fun CrashGameScreen(viewModel: AppViewModel, onBack: () -> Unit) {
             }
         }
         if (!running) {
-            Button(
-                onClick = {
-                    viewModel.beginWager("Crash", parseStake(stake)) { started ->
-                        if (started == null) {
-                            message = "Could not start: check stake and balance."
-                        } else {
-                            wager = started
-                            round = CrashEngine(viewModel.randomProvider()).newRound()
-                            multiplier = 1.0
-                            running = true
-                            message = "Round live. Collect before the crash."
-                        }
+            Button(onClick = {
+                viewModel.beginWager("Crash", parseStake(stake)) { started ->
+                    if (started == null) message = "Could not start: check stake and balance."
+                    else {
+                        wager = started
+                        round = CrashEngine(viewModel.randomProvider()).newRound()
+                        multiplier = 1.0
+                        running = true
+                        message = "Round live. Collect before the crash."
                     }
-                },
-                modifier = Modifier.fillMaxWidth()
-            ) { Text("START") }
+                }
+            }, modifier = Modifier.fillMaxWidth()) { Text("START") }
         } else {
-            Button(
-                onClick = {
-                    val active = wager ?: return@Button
-                    val activeRound = round ?: return@Button
-                    val cash = CrashEngine(viewModel.randomProvider()).cashOut(activeRound, multiplier)
-                    if (cash.won) {
-                        running = false
-                        wager = null
-                        viewModel.settleWager(active, cash.payoutMultiplier, "Collected @ ${"%.2f".format(multiplier)}x")
-                        message = "Collected @ ${"%.2f".format(multiplier)}x"
-                    }
-                },
-                modifier = Modifier.fillMaxWidth()
-            ) { Text("COLLECT ${"%.2f".format(multiplier)}x") }
+            Button(onClick = {
+                val active = wager ?: return@Button
+                val activeRound = round ?: return@Button
+                val cash = CrashEngine(viewModel.randomProvider()).cashOut(activeRound, multiplier)
+                if (cash.won) {
+                    running = false
+                    wager = null
+                    viewModel.settleWager(active, cash.payoutMultiplier, "Collected @ ${"%.2f".format(multiplier)}x")
+                    message = "Collected @ ${"%.2f".format(multiplier)}x"
+                }
+            }, modifier = Modifier.fillMaxWidth()) { Text("COLLECT ${"%.2f".format(multiplier)}x") }
         }
         RoundMessage(message)
     }
@@ -297,7 +275,7 @@ fun CrashGameScreen(viewModel: AppViewModel, onBack: () -> Unit) {
 
 @Composable
 fun BlackjackGameScreen(viewModel: AppViewModel, onBack: () -> Unit) {
-    val balance by viewModel.balance.collectAsStateCompat()
+    val balance by viewModel.balance.collectAsState()
     var stake by remember { mutableStateOf("1000") }
     var wager by remember { mutableStateOf<ActiveWager?>(null) }
     var engine by remember { mutableStateOf<BlackjackEngine?>(null) }
@@ -329,57 +307,45 @@ fun BlackjackGameScreen(viewModel: AppViewModel, onBack: () -> Unit) {
             Text("Player · ${BlackjackEngine.score(current.player).total}", color = Color(0xFF94A3B8), fontWeight = FontWeight.Bold)
             PlayingCards(current.player)
         }
-
         if (wager == null) {
-            Button(
-                onClick = {
-                    viewModel.beginWager("Blackjack", parseStake(stake)) { started ->
-                        if (started == null) {
-                            message = "Could not start: check stake and balance."
-                        } else {
-                            val created = BlackjackEngine(viewModel.randomProvider())
-                            val initial = created.newRound()
-                            wager = started
-                            engine = created
-                            round = initial
-                            if (initial.status != BlackjackStatus.PLAYER_TURN) finish(started, initial)
-                            else message = "Your move: Hit, Stand, or Double."
-                        }
+            Button(onClick = {
+                viewModel.beginWager("Blackjack", parseStake(stake)) { started ->
+                    if (started == null) message = "Could not start: check stake and balance."
+                    else {
+                        val created = BlackjackEngine(viewModel.randomProvider())
+                        val initial = created.newRound()
+                        wager = started
+                        engine = created
+                        round = initial
+                        if (initial.status != BlackjackStatus.PLAYER_TURN) finish(started, initial)
+                        else message = "Your move: Hit, Stand, or Double."
                     }
-                },
-                modifier = Modifier.fillMaxWidth()
-            ) { Text("NEW ROUND") }
+                }
+            }, modifier = Modifier.fillMaxWidth()) { Text("NEW ROUND") }
         } else {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
-                    onClick = {
-                        val active = wager ?: return@Button
-                        val current = round ?: return@Button
-                        val currentEngine = engine ?: return@Button
-                        val next = currentEngine.hit(current)
-                        round = next
-                        if (next.status != BlackjackStatus.PLAYER_TURN) finish(active, next)
-                    },
-                    modifier = Modifier.weight(1f)
-                ) { Text("HIT") }
-                Button(
-                    onClick = {
-                        val active = wager ?: return@Button
-                        val current = round ?: return@Button
-                        val currentEngine = engine ?: return@Button
-                        finish(active, currentEngine.stand(current))
-                    },
-                    modifier = Modifier.weight(1f)
-                ) { Text("STAND") }
+                Button(onClick = {
+                    val active = wager ?: return@Button
+                    val current = round ?: return@Button
+                    val currentEngine = engine ?: return@Button
+                    val next = currentEngine.hit(current)
+                    round = next
+                    if (next.status != BlackjackStatus.PLAYER_TURN) finish(active, next)
+                }, modifier = Modifier.weight(1f)) { Text("HIT") }
+                Button(onClick = {
+                    val active = wager ?: return@Button
+                    val current = round ?: return@Button
+                    val currentEngine = engine ?: return@Button
+                    finish(active, currentEngine.stand(current))
+                }, modifier = Modifier.weight(1f)) { Text("STAND") }
                 OutlinedButton(
                     onClick = {
                         val active = wager ?: return@OutlinedButton
                         val current = round ?: return@OutlinedButton
                         val currentEngine = engine ?: return@OutlinedButton
                         viewModel.increaseWager(active, active.stake) { doubled ->
-                            if (doubled == null) {
-                                message = "Not enough balance to Double."
-                            } else {
+                            if (doubled == null) message = "Not enough balance to Double."
+                            else {
                                 wager = doubled
                                 finish(doubled, currentEngine.double(current))
                             }
@@ -412,7 +378,7 @@ private fun PlayingCards(cards: List<PlayingCard>) {
 
 @Composable
 fun HiLoGameScreen(viewModel: AppViewModel, onBack: () -> Unit) {
-    val balance by viewModel.balance.collectAsStateCompat()
+    val balance by viewModel.balance.collectAsState()
     var stake by remember { mutableStateOf("1000") }
     var wager by remember { mutableStateOf<ActiveWager?>(null) }
     var engine by remember { mutableStateOf<HiLoEngine?>(null) }
@@ -438,57 +404,48 @@ fun HiLoGameScreen(viewModel: AppViewModel, onBack: () -> Unit) {
             }
         }
         if (wager == null) {
-            Button(
-                onClick = {
-                    viewModel.beginWager("Hi-Lo", parseStake(stake)) { started ->
-                        if (started == null) message = "Could not start: check stake and balance."
-                        else {
-                            val created = HiLoEngine(viewModel.randomProvider())
-                            wager = started
-                            engine = created
-                            round = created.newRound()
-                            message = "Choose Higher or Lower."
-                        }
+            Button(onClick = {
+                viewModel.beginWager("Hi-Lo", parseStake(stake)) { started ->
+                    if (started == null) message = "Could not start: check stake and balance."
+                    else {
+                        val created = HiLoEngine(viewModel.randomProvider())
+                        wager = started
+                        engine = created
+                        round = created.newRound()
+                        message = "Choose Higher or Lower."
                     }
-                },
-                modifier = Modifier.fillMaxWidth()
-            ) { Text("START") }
+                }
+            }, modifier = Modifier.fillMaxWidth()) { Text("START") }
         } else {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 HiLoGuess.entries.forEach { guess ->
-                    Button(
-                        onClick = {
-                            val active = wager ?: return@Button
-                            val current = round ?: return@Button
-                            val currentEngine = engine ?: return@Button
-                            val next = currentEngine.guess(current, guess)
-                            if (!next.won) {
-                                viewModel.settleWager(active, 0.0, "Wrong guess", "Next ${next.next.rank.name}")
-                                message = "Wrong. Next card: ${next.next.rank.name}."
-                                wager = null
-                                engine = null
-                                round = null
-                            } else {
-                                round = next.round
-                                message = "Correct · ${"%.2f".format(next.payoutMultiplier)}x"
-                            }
-                        },
-                        modifier = Modifier.weight(1f)
-                    ) { Text(guess.name) }
+                    Button(onClick = {
+                        val active = wager ?: return@Button
+                        val current = round ?: return@Button
+                        val currentEngine = engine ?: return@Button
+                        val next = currentEngine.guess(current, guess)
+                        if (!next.won) {
+                            viewModel.settleWager(active, 0.0, "Wrong guess", "Next ${next.next.rank.name}")
+                            message = "Wrong. Next card: ${next.next.rank.name}."
+                            wager = null
+                            engine = null
+                            round = null
+                        } else {
+                            round = next.round
+                            message = "Correct · ${"%.2f".format(next.payoutMultiplier)}x"
+                        }
+                    }, modifier = Modifier.weight(1f)) { Text(guess.name) }
                 }
             }
-            OutlinedButton(
-                onClick = {
-                    val active = wager ?: return@OutlinedButton
-                    val current = round ?: return@OutlinedButton
-                    viewModel.settleWager(active, current.multiplier, "Cash out", "Streak ${current.streak}")
-                    message = "Cashed out at ${"%.2f".format(current.multiplier)}x."
-                    wager = null
-                    engine = null
-                    round = null
-                },
-                modifier = Modifier.fillMaxWidth()
-            ) { Text("CASH OUT") }
+            OutlinedButton(onClick = {
+                val active = wager ?: return@OutlinedButton
+                val current = round ?: return@OutlinedButton
+                viewModel.settleWager(active, current.multiplier, "Cash out", "Streak ${current.streak}")
+                message = "Cashed out at ${"%.2f".format(current.multiplier)}x."
+                wager = null
+                engine = null
+                round = null
+            }, modifier = Modifier.fillMaxWidth()) { Text("CASH OUT") }
         }
         RoundMessage(message)
     }
@@ -527,7 +484,7 @@ private fun PathGameScreen(
     newRound: (RandomProvider) -> PathRound,
     choose: (PathRound, Int) -> PathStep
 ) {
-    val balance by viewModel.balance.collectAsStateCompat()
+    val balance by viewModel.balance.collectAsState()
     var stake by remember { mutableStateOf("1000") }
     var wager by remember { mutableStateOf<ActiveWager?>(null) }
     var round by remember { mutableStateOf<PathRound?>(null) }
@@ -546,62 +503,49 @@ private fun PathGameScreen(
             Text("Level ${current.level + 1} · ${"%.2f".format(current.multiplier)}x", fontSize = 24.sp, fontWeight = FontWeight.Black)
         }
         if (wager == null) {
-            Button(
-                onClick = {
-                    viewModel.beginWager(title, parseStake(stake)) { started ->
-                        if (started == null) message = "Could not start: check stake and balance."
-                        else {
-                            wager = started
-                            round = newRound(viewModel.randomProvider())
-                            message = "Round live. Pick a tile."
-                        }
+            Button(onClick = {
+                viewModel.beginWager(title, parseStake(stake)) { started ->
+                    if (started == null) message = "Could not start: check stake and balance."
+                    else {
+                        wager = started
+                        round = newRound(viewModel.randomProvider())
+                        message = "Round live. Pick a tile."
                     }
-                },
-                modifier = Modifier.fillMaxWidth()
-            ) { Text("START") }
+                }
+            }, modifier = Modifier.fillMaxWidth()) { Text("START") }
         } else {
             Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                 repeat(cellCount) { cell ->
-                    Button(
-                        onClick = {
-                            val active = wager ?: return@Button
-                            val current = round ?: return@Button
-                            val step = choose(current, cell)
-                            if (!step.won) {
-                                viewModel.settleWager(active, 0.0, "Failed", "Level ${current.level + 1}")
-                                message = "Failed at level ${current.level + 1}."
+                    Button(onClick = {
+                        val active = wager ?: return@Button
+                        val current = round ?: return@Button
+                        val step = choose(current, cell)
+                        if (!step.won) {
+                            viewModel.settleWager(active, 0.0, "Failed", "Level ${current.level + 1}")
+                            message = "Failed at level ${current.level + 1}."
+                            wager = null
+                            round = null
+                        } else {
+                            round = step.round
+                            message = "Safe · ${"%.2f".format(step.payoutMultiplier)}x"
+                            if (step.round.finished) {
+                                viewModel.settleWager(active, step.payoutMultiplier, "Completed", "$title completed")
+                                message = "Completed · ${"%.2f".format(step.payoutMultiplier)}x"
                                 wager = null
-                                round = null
-                            } else {
-                                round = step.round
-                                message = "Safe · ${"%.2f".format(step.payoutMultiplier)}x"
-                                if (step.round.finished) {
-                                    viewModel.settleWager(active, step.payoutMultiplier, "Completed", "$title completed")
-                                    message = "Completed · ${"%.2f".format(step.payoutMultiplier)}x"
-                                    wager = null
-                                }
                             }
-                        },
-                        modifier = Modifier.weight(1f)
-                    ) { Text("${cell + 1}") }
+                        }
+                    }, modifier = Modifier.weight(1f)) { Text("${cell + 1}") }
                 }
             }
-            OutlinedButton(
-                onClick = {
-                    val active = wager ?: return@OutlinedButton
-                    val current = round ?: return@OutlinedButton
-                    viewModel.settleWager(active, current.multiplier, "Cash out", "Level ${current.level}")
-                    message = "Cashed out at ${"%.2f".format(current.multiplier)}x."
-                    wager = null
-                    round = null
-                },
-                modifier = Modifier.fillMaxWidth()
-            ) { Text("CASH OUT") }
+            OutlinedButton(onClick = {
+                val active = wager ?: return@OutlinedButton
+                val current = round ?: return@OutlinedButton
+                viewModel.settleWager(active, current.multiplier, "Cash out", "Level ${current.level}")
+                message = "Cashed out at ${"%.2f".format(current.multiplier)}x."
+                wager = null
+                round = null
+            }, modifier = Modifier.fillMaxWidth()) { Text("CASH OUT") }
         }
         RoundMessage(message)
     }
 }
-
-@Composable
-private fun <T> kotlinx.coroutines.flow.StateFlow<T>.collectAsStateCompat(): androidx.compose.runtime.State<T> =
-    androidx.compose.runtime.collectAsState(this)
