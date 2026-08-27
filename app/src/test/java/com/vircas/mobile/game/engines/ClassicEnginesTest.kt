@@ -29,6 +29,28 @@ class ClassicEnginesTest {
         assertFalse(hard17.soft)
     }
 
+    @Test fun dealerStandsOnSoftSeventeen() {
+        val round = BlackjackRound(
+            player = listOf(PlayingCard(Rank.TEN, Suit.SPADES), PlayingCard(Rank.SEVEN, Suit.CLUBS)),
+            dealer = listOf(PlayingCard(Rank.ACE, Suit.HEARTS), PlayingCard(Rank.SIX, Suit.DIAMONDS)),
+            deck = listOf(PlayingCard(Rank.TEN, Suit.HEARTS)),
+            status = BlackjackStatus.PLAYER_TURN
+        )
+        val resolved = BlackjackEngine(ZeroRandom).stand(round)
+        assertEquals(2, resolved.dealer.size)
+        assertEquals(BlackjackStatus.PUSH, resolved.status)
+    }
+
+    @Test fun naturalBlackjackPaysThreeToTwoProfit() {
+        val round = BlackjackRound(
+            player = listOf(PlayingCard(Rank.ACE, Suit.SPADES), PlayingCard(Rank.KING, Suit.CLUBS)),
+            dealer = emptyList(),
+            deck = emptyList(),
+            status = BlackjackStatus.BLACKJACK
+        )
+        assertEquals(2.5, round.payoutMultiplier, 0.0)
+    }
+
     @Test fun deterministicPathGenerationCannotLoopForever() {
         val ladder = LadderEngine(ZeroRandom).newRound()
         assertTrue(ladder.safeByLevel.all { it.size == 3 })
