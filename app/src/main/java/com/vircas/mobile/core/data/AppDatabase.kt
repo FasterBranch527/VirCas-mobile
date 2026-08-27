@@ -30,9 +30,10 @@ interface GameHistoryDao {
     @Query("DELETE FROM game_history") suspend fun clear()
 }
 
-@Database(entities = [GameHistoryEntity::class], version = 1, exportSchema = false)
+@Database(entities = [GameHistoryEntity::class, InventoryItemEntity::class], version = 2, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun gameHistoryDao(): GameHistoryDao
+    abstract fun inventoryDao(): InventoryDao
 }
 
 class GameHistoryRepository(private val dao: GameHistoryDao) {
