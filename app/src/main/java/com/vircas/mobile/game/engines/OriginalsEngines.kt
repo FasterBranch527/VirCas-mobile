@@ -36,8 +36,11 @@ class MinesEngine(private val random: RandomProvider) {
 
     fun newRound(mineCount: Int): Round {
         require(mineCount in 1..10)
-        val mines = mutableSetOf<Int>()
-        while (mines.size < mineCount) mines += random.nextInt(0, 25)
+        val pool = (0 until 25).toMutableList()
+        val mines = linkedSetOf<Int>()
+        repeat(mineCount) {
+            mines += pool.removeAt(random.nextInt(0, pool.size))
+        }
         return Round(mines, mineCount = mineCount)
     }
 
