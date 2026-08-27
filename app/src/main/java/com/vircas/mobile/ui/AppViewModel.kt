@@ -8,6 +8,7 @@ import com.vircas.mobile.core.data.FairnessRoundEntity
 import com.vircas.mobile.core.data.GameHistoryEntity
 import com.vircas.mobile.core.data.InventoryItemEntity
 import com.vircas.mobile.core.data.UserSettings
+import com.vircas.mobile.core.game.ActiveWager
 import com.vircas.mobile.core.game.RoundReceipt
 import com.vircas.mobile.core.progression.DailyRewardClaim
 import com.vircas.mobile.core.progression.UserProgress
@@ -35,41 +36,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private var seededRandom: SeededRandomProvider? = null
     private var seededRandomSeed: Long? = null
 
-    val balance: StateFlow<Long> = container.walletRepository.balance.stateIn(
-        viewModelScope,
-        SharingStarted.WhileSubscribed(5_000),
-        WalletRepository.STARTING_BALANCE
-    )
-
-    val settings: StateFlow<UserSettings> = container.settingsRepository.settings.stateIn(
-        viewModelScope,
-        SharingStarted.WhileSubscribed(5_000),
-        UserSettings()
-    )
-
-    val progress: StateFlow<UserProgress> = container.progressionRepository.progress.stateIn(
-        viewModelScope,
-        SharingStarted.WhileSubscribed(5_000),
-        UserProgress()
-    )
-
-    val inventory: StateFlow<List<InventoryItemEntity>> = container.inventoryRepository.items.stateIn(
-        viewModelScope,
-        SharingStarted.WhileSubscribed(5_000),
-        emptyList()
-    )
-
-    val history: StateFlow<List<GameHistoryEntity>> = container.historyRepository.recent(30).stateIn(
-        viewModelScope,
-        SharingStarted.WhileSubscribed(5_000),
-        emptyList()
-    )
-
-    val fairness: StateFlow<List<FairnessRoundEntity>> = container.fairnessRepository.recent(50).stateIn(
-        viewModelScope,
-        SharingStarted.WhileSubscribed(5_000),
-        emptyList()
-    )
+    val balance: StateFlow<Long> = container.walletRepository.balance.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WalletRepository.STARTING_BALANCE)
+    val settings: StateFlow<UserSettings> = container.settingsRepository.settings.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), UserSettings())
+    val progress: StateFlow<UserProgress> = container.progressionRepository.progress.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), UserProgress())
+    val inventory: StateFlow<List<InventoryItemEntity>> = container.inventoryRepository.items.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val history: StateFlow<List<GameHistoryEntity>> = container.historyRepository.recent(30).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val fairness: StateFlow<List<FairnessRoundEntity>> = container.fairnessRepository.recent(50).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     fun randomProvider(): RandomProvider {
         val current = settings.value
@@ -89,6 +61,35 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         onResult(claim)
     }
 
+    fun beginWager(game: String, stake: Long, onResult: (ActiveWager?) -> Unit) = viewModelScope.launch {
+        onResult(container.gameLedger.begin(game, stake))
+    }
+
+    fun increaseWager(wager: ActiveWager, additionalStake: Long, onResult: (ActiveWager?) -> Unit) = viewModelScope.launch {
+        onResult(container.gameLedger.increase(wager, additionalStake))
+    }
+
+    fun settleWager(
+        wager: ActiveWager,
+        multiplier: Double,
+        result: String,
+        details: String = "",
+        onResult: (RoundReceipt?) -> Unit = {}
+    ) = viewModelScope.launch {
+        runCatching {
+            container.gameLedger.settle(
+                wager,
+                multiplier,
+                result,
+                details,
+                fairnessSeed(),
+                settings.value.clientSeed
+            )
+        }.onSuccess(onResult).onFailure { onResult(null) }
+    }
+
+    fun cancelWager(wager: ActiveWager) = viewModelScope.launch { container.gameLedger.cancel(wager) }
+
     fun playResolved(
         game: String,
         stake: Long,
@@ -100,9 +101,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             onResult(null)
             return@launch
         }
-        try {
+        runCatching {
             val play = resolver(randomProvider())
-            val receipt = container.gameLedger.settle(
+            container.gameLedger.settle(
                 wager = wager,
                 multiplier = play.multiplier,
                 result = play.result,
@@ -110,10 +111,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 generatedSeed = fairnessSeed(),
                 clientSeed = settings.value.clientSeed
             )
-            onResult(receipt)
-        } catch (error: Throwable) {
+        }.onSuccess(onResult).onFailure {
             container.gameLedger.cancel(wager)
-            throw error
+            onResult(null)
         }
     }
 
@@ -123,7 +123,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             onResult(null)
             return@launch
         }
-        try {
+        runCatching {
             val result = CasesEngine(randomProvider()).open(definition)
             val item = result.item
             container.inventoryRepository.add(
@@ -141,16 +141,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             container.progressionRepository.recordCaseOpen()
             container.gameLedger.settle(
                 wager,
-                multiplier = 0.0,
-                result = item.name,
-                details = "${definition.title} · ${item.rarity.name}",
-                generatedSeed = fairnessSeed(),
-                clientSeed = settings.value.clientSeed
+                0.0,
+                item.name,
+                "${definition.title} · ${item.rarity.name}",
+                fairnessSeed(),
+                settings.value.clientSeed
             )
-            onResult(result)
-        } catch (error: Throwable) {
+            result
+        }.onSuccess(onResult).onFailure {
             container.gameLedger.cancel(wager)
-            throw error
+            onResult(null)
         }
     }
 
@@ -169,7 +169,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             onResult(null)
             return@launch
         }
-        try {
+        runCatching {
             val result = SportsBettingEngine(randomProvider()).simulate(event)
             val multiplier = if (result.winnerSelectionId == selection.id) selection.odds else 0.0
             container.progressionRepository.recordVirtualBet()
@@ -181,10 +181,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 fairnessSeed(),
                 settings.value.clientSeed
             )
-            onResult(receipt to result)
-        } catch (error: Throwable) {
+            receipt to result
+        }.onSuccess(onResult).onFailure {
             container.gameLedger.cancel(wager)
-            throw error
+            onResult(null)
         }
     }
 
@@ -197,9 +197,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         if (container.inventoryRepository.remove(id)) {
             container.walletRepository.credit(item.marketValue)
             onResult(item.marketValue)
-        } else {
-            onResult(null)
-        }
+        } else onResult(null)
     }
 
     fun setSound(value: Boolean) = viewModelScope.launch { container.settingsRepository.setSound(value) }
@@ -220,9 +218,5 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         container.fairnessRepository.clear()
     }
 
-    private fun fairnessSeed(): String = if (settings.value.secureRng) {
-        UUID.randomUUID().toString().replace("-", "")
-    } else {
-        "debug-${settings.value.debugSeed}"
-    }
+    private fun fairnessSeed(): String = if (settings.value.secureRng) UUID.randomUUID().toString().replace("-", "") else "debug-${settings.value.debugSeed}"
 }
