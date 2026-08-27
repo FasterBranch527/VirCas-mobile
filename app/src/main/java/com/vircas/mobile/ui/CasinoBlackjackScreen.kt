@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -32,7 +31,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -80,11 +78,14 @@ fun CasinoBlackjackGameScreen(viewModel: AppViewModel, onBack: () -> Unit) {
     var playerShown by remember { mutableIntStateOf(0) }
     var dealerShown by remember { mutableIntStateOf(0) }
     var holeRevealed by remember { mutableStateOf(false) }
+
     var dealSequence by remember { mutableIntStateOf(0) }
-    var dealerSequence by remember { mutableIntStateOf(0) }
     var hitSequence by remember { mutableIntStateOf(0) }
-    var pendingDealerRound by remember { mutableStateOf<BlackjackRound?>(null) }
-    var pendingHitRound by remember { mutableStateOf<BlackjackRound?>(null) }
+    var doubleSequence by remember { mutableIntStateOf(0) }
+    var dealerSequence by remember { mutableIntStateOf(0) }
+    var pendingHit by remember { mutableStateOf<BlackjackRound?>(null) }
+    var pendingDouble by remember { mutableStateOf<BlackjackRound?>(null) }
+    var pendingDealer by remember { mutableStateOf<BlackjackRound?>(null) }
 
     fun leave() {
         wager?.let(viewModel::cancelWager)
@@ -115,6 +116,11 @@ fun CasinoBlackjackGameScreen(viewModel: AppViewModel, onBack: () -> Unit) {
         phase = BlackjackUiPhase.COMPLETE
     }
 
+    fun startDealerAnimation(finished: BlackjackRound) {
+        pendingDealer = finished
+        dealerSequence += 1
+    }
+
     LaunchedEffect(dealSequence) {
         if (dealSequence == 0 || phase != BlackjackUiPhase.DEALING) return@LaunchedEffect
         val active = wager ?: return@LaunchedEffect
@@ -122,7 +128,7 @@ fun CasinoBlackjackGameScreen(viewModel: AppViewModel, onBack: () -> Unit) {
         playerShown = 0
         dealerShown = 0
         holeRevealed = false
-        delay(180)
+        delay(170)
         playerShown = 1
         delay(230)
         dealerShown = 1
@@ -144,42 +150,59 @@ fun CasinoBlackjackGameScreen(viewModel: AppViewModel, onBack: () -> Unit) {
     LaunchedEffect(hitSequence) {
         if (hitSequence == 0) return@LaunchedEffect
         val active = wager ?: return@LaunchedEffect
-        val next = pendingHitRound ?: return@LaunchedEffect
+        val next = pendingHit ?: return@LaunchedEffect
         phase = BlackjackUiPhase.DEALING
-        delay(130)
+        delay(120)
         playerShown = next.player.size
         delay(430)
         if (next.status == BlackjackStatus.PLAYER_TURN) {
             phase = BlackjackUiPhase.PLAYER_TURN
             val score = BlackjackEngine.score(next.player).total
-            message = if (score == 21) "21 · STAND OR DOUBLE IS LOCKED" else "YOUR MOVE · $score"
+            message = if (score == 21) "21 · STAND" else "YOUR MOVE · $score"
         } else {
             holeRevealed = true
             delay(380)
             settle(active, next)
         }
-        pendingHitRound = null
+        pendingHit = null
+    }
+
+    LaunchedEffect(doubleSequence) {
+        if (doubleSequence == 0) return@LaunchedEffect
+        val active = wager ?: return@LaunchedEffect
+        val finished = pendingDouble ?: return@LaunchedEffect
+        phase = BlackjackUiPhase.DEALING
+        delay(150)
+        playerShown = finished.player.size
+        delay(480)
+        if (BlackjackEngine.score(finished.player).total > 21) {
+            holeRevealed = true
+            delay(360)
+            settle(active, finished)
+        } else {
+            startDealerAnimation(finished)
+        }
+        pendingDouble = null
     }
 
     LaunchedEffect(dealerSequence) {
         if (dealerSequence == 0) return@LaunchedEffect
         val active = wager ?: return@LaunchedEffect
-        val finished = pendingDealerRound ?: return@LaunchedEffect
+        val finished = pendingDealer ?: return@LaunchedEffect
         phase = BlackjackUiPhase.DEALER_TURN
         message = "DEALER TURN"
-        delay(300)
+        delay(280)
         holeRevealed = true
         delay(520)
-        val target = finished.dealer.size
         var shown = dealerShown.coerceAtLeast(2)
-        while (shown < target) {
+        while (shown < finished.dealer.size) {
             shown += 1
             dealerShown = shown
             delay(540)
         }
         delay(460)
         settle(active, finished)
-        pendingDealerRound = null
+        pendingDealer = null
     }
 
     BoxWithConstraints(
@@ -201,13 +224,10 @@ fun CasinoBlackjackGameScreen(viewModel: AppViewModel, onBack: () -> Unit) {
             modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(if (compact) 5.dp else 8.dp)
         ) {
-            BlackjackHeader(balance = balance, onBack = ::leave)
+            BlackjackHeader(balance, ::leave)
 
             Box(Modifier.weight(1f).fillMaxWidth()) {
-                Column(
-                    modifier = Modifier.fillMaxSize(),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
+                Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
                     val current = round
                     val dealerScore = current?.let {
                         if (!holeRevealed && it.dealer.isNotEmpty()) {
@@ -216,35 +236,20 @@ fun CasinoBlackjackGameScreen(viewModel: AppViewModel, onBack: () -> Unit) {
                             BlackjackEngine.score(it.dealer.take(dealerShown.coerceAtLeast(1))).total.toString()
                         }
                     } ?: "–"
-                    HandLabel("DEALER", dealerScore, accent = Color(0xFFF8D477), compact = compact)
+                    HandLabel("DEALER", dealerScore, Color(0xFFF8D477), compact)
                     Spacer(Modifier.height(if (compact) 3.dp else 7.dp))
-                    BlackjackHand(
-                        cards = current?.dealer.orEmpty(),
-                        shownCount = dealerShown,
-                        hideHole = !holeRevealed,
-                        cardWidth = cardWidth,
-                        cardHeight = cardHeight
-                    )
+                    BlackjackHand(current?.dealer.orEmpty(), dealerShown, !holeRevealed, cardWidth, cardHeight)
 
                     Spacer(Modifier.weight(1f))
-                    BlackjackStatusPlate(
-                        phase = phase,
-                        message = message,
-                        stake = wager?.stake ?: stakeText.toLongOrNull() ?: 0L,
-                        compact = compact
-                    )
+                    BlackjackStatusPlate(phase, message, wager?.stake ?: stakeText.toLongOrNull() ?: 0L, compact)
                     Spacer(Modifier.weight(1f))
 
-                    val playerScore = current?.let { BlackjackEngine.score(it.player.take(playerShown.coerceAtLeast(1))).total.toString() } ?: "–"
-                    BlackjackHand(
-                        cards = current?.player.orEmpty(),
-                        shownCount = playerShown,
-                        hideHole = false,
-                        cardWidth = cardWidth,
-                        cardHeight = cardHeight
-                    )
+                    val playerScore = current?.let {
+                        if (playerShown <= 0) "–" else BlackjackEngine.score(it.player.take(playerShown)).total.toString()
+                    } ?: "–"
+                    BlackjackHand(current?.player.orEmpty(), playerShown, false, cardWidth, cardHeight)
                     Spacer(Modifier.height(if (compact) 3.dp else 7.dp))
-                    HandLabel("PLAYER", playerScore, accent = ShellCyan, compact = compact)
+                    HandLabel("PLAYER", playerScore, ShellCyan, compact)
                 }
             }
 
@@ -255,98 +260,91 @@ fun CasinoBlackjackGameScreen(viewModel: AppViewModel, onBack: () -> Unit) {
                 shadowElevation = 16.dp
             ) {
                 when (phase) {
-                    BlackjackUiPhase.READY, BlackjackUiPhase.COMPLETE -> {
-                        BlackjackBetPanel(
-                            stakeText = stakeText,
-                            balance = balance,
-                            compact = compact,
-                            onStake = { stakeText = it },
-                            onDeal = {
-                                val stake = stakeText.toLongOrNull()?.takeIf { it > 0L } ?: 0L
-                                if (stake <= 0L || stake > balance) {
-                                    message = "CHECK YOUR VIRTUAL STAKE"
-                                    return@BlackjackBetPanel
-                                }
-                                phase = BlackjackUiPhase.DEALING
-                                message = "DEALING…"
-                                holeRevealed = false
-                                playerShown = 0
-                                dealerShown = 0
-                                viewModel.beginWager("Blackjack", stake) { started ->
-                                    if (started == null) {
-                                        phase = BlackjackUiPhase.READY
-                                        message = "COULD NOT START · CHECK BALANCE"
-                                    } else {
-                                        val created = BlackjackEngine(viewModel.randomProvider())
-                                        wager = started
-                                        engine = created
-                                        round = created.newRound()
-                                        dealSequence += 1
-                                    }
+                    BlackjackUiPhase.READY, BlackjackUiPhase.COMPLETE -> BlackjackBetPanel(
+                        stakeText = stakeText,
+                        balance = balance,
+                        compact = compact,
+                        onStake = { stakeText = it },
+                        onDeal = {
+                            val stake = stakeText.toLongOrNull()?.takeIf { it > 0L } ?: 0L
+                            if (stake <= 0L || stake > balance) {
+                                message = "CHECK YOUR VIRTUAL STAKE"
+                                return@BlackjackBetPanel
+                            }
+                            phase = BlackjackUiPhase.DEALING
+                            message = "DEALING…"
+                            holeRevealed = false
+                            playerShown = 0
+                            dealerShown = 0
+                            pendingHit = null
+                            pendingDouble = null
+                            pendingDealer = null
+                            viewModel.beginWager("Blackjack", stake) { started ->
+                                if (started == null) {
+                                    phase = BlackjackUiPhase.READY
+                                    message = "COULD NOT START · CHECK BALANCE"
+                                } else {
+                                    val created = BlackjackEngine(viewModel.randomProvider())
+                                    wager = started
+                                    engine = created
+                                    round = created.newRound()
+                                    dealSequence += 1
                                 }
                             }
-                        )
-                    }
-
-                    BlackjackUiPhase.PLAYER_TURN -> {
-                        BlackjackActionPanel(
-                            canDouble = round?.player?.size == 2 && (wager?.stake ?: Long.MAX_VALUE) <= balance,
-                            compact = compact,
-                            onHit = {
-                                val current = round ?: return@BlackjackActionPanel
-                                val currentEngine = engine ?: return@BlackjackActionPanel
-                                val next = currentEngine.hit(current)
-                                round = next
-                                pendingHitRound = next
-                                hitSequence += 1
-                            },
-                            onStand = {
-                                val current = round ?: return@BlackjackActionPanel
-                                val currentEngine = engine ?: return@BlackjackActionPanel
-                                val finished = currentEngine.stand(current)
-                                round = finished
-                                pendingDealerRound = finished
-                                dealerSequence += 1
-                            },
-                            onDouble = {
-                                val active = wager ?: return@BlackjackActionPanel
-                                val current = round ?: return@BlackjackActionPanel
-                                val currentEngine = engine ?: return@BlackjackActionPanel
-                                phase = BlackjackUiPhase.DEALING
-                                message = "DOUBLE DOWN"
-                                viewModel.increaseWager(active, active.stake) { doubled ->
-                                    if (doubled == null) {
-                                        phase = BlackjackUiPhase.PLAYER_TURN
-                                        message = "NOT ENOUGH BALANCE TO DOUBLE"
-                                    } else {
-                                        wager = doubled
-                                        val finished = currentEngine.double(current)
-                                        round = finished
-                                        pendingHitRound = finished
-                                        hitSequence += 1
-                                        if (finished.status != BlackjackStatus.DEALER_WIN || BlackjackEngine.score(finished.player).total <= 21) {
-                                            pendingDealerRound = finished
-                                        }
-                                    }
-                                }
-                            }
-                        )
-                    }
-
-                    BlackjackUiPhase.DEALING, BlackjackUiPhase.DEALER_TURN -> {
-                        Row(
-                            Modifier.fillMaxWidth().padding(16.dp),
-                            horizontalArrangement = Arrangement.Center,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.Rounded.Casino, null, tint = ShellGold)
-                            Spacer(Modifier.width(9.dp))
-                            Text(
-                                if (phase == BlackjackUiPhase.DEALER_TURN) "DEALER IS PLAYING" else "CARDS IN MOTION",
-                                fontWeight = FontWeight.Black,
-                                color = Color.White.copy(alpha = .75f)
-                            )
                         }
+                    )
+
+                    BlackjackUiPhase.PLAYER_TURN -> BlackjackActionPanel(
+                        canDouble = round?.player?.size == 2 && (wager?.stake ?: Long.MAX_VALUE) <= balance,
+                        compact = compact,
+                        onHit = {
+                            val current = round ?: return@BlackjackActionPanel
+                            val currentEngine = engine ?: return@BlackjackActionPanel
+                            val next = currentEngine.hit(current)
+                            round = next
+                            pendingHit = next
+                            hitSequence += 1
+                        },
+                        onStand = {
+                            val current = round ?: return@BlackjackActionPanel
+                            val currentEngine = engine ?: return@BlackjackActionPanel
+                            val finished = currentEngine.stand(current)
+                            round = finished
+                            startDealerAnimation(finished)
+                        },
+                        onDouble = {
+                            val active = wager ?: return@BlackjackActionPanel
+                            val current = round ?: return@BlackjackActionPanel
+                            val currentEngine = engine ?: return@BlackjackActionPanel
+                            phase = BlackjackUiPhase.DEALING
+                            message = "DOUBLE DOWN"
+                            viewModel.increaseWager(active, active.stake) { doubled ->
+                                if (doubled == null) {
+                                    phase = BlackjackUiPhase.PLAYER_TURN
+                                    message = "NOT ENOUGH BALANCE TO DOUBLE"
+                                } else {
+                                    wager = doubled
+                                    val finished = currentEngine.double(current)
+                                    round = finished
+                                    pendingDouble = finished
+                                    doubleSequence += 1
+                                }
+                            }
+                        }
+                    )
+
+                    BlackjackUiPhase.DEALING, BlackjackUiPhase.DEALER_TURN -> Row(
+                        Modifier.fillMaxWidth().padding(16.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Rounded.Casino, null, tint = ShellGold)
+                        Spacer(Modifier.width(9.dp))
+                        Text(
+                            if (phase == BlackjackUiPhase.DEALER_TURN) "DEALER IS PLAYING" else "CARDS IN MOTION",
+                            fontWeight = FontWeight.Black,
+                            color = Color.White.copy(alpha = .75f)
+                        )
                     }
                 }
             }
@@ -494,16 +492,10 @@ private fun BlackjackStatusPlate(phase: BlackjackUiPhase, message: String, stake
 }
 
 @Composable
-private fun BlackjackHand(
-    cards: List<PlayingCard>,
-    shownCount: Int,
-    hideHole: Boolean,
-    cardWidth: Dp,
-    cardHeight: Dp
-) {
+private fun BlackjackHand(cards: List<PlayingCard>, shownCount: Int, hideHole: Boolean, cardWidth: Dp, cardHeight: Dp) {
     val overlap = cardWidth * .57f
-    val visible = cards.take(shownCount.coerceAtMost(cards.size))
-    val width = if (visible.isEmpty()) cardWidth else cardWidth + overlap * (visible.size - 1)
+    val visibleCount = shownCount.coerceIn(0, cards.size)
+    val width = if (visibleCount == 0) cardWidth else cardWidth + overlap * (visibleCount - 1)
     Box(Modifier.width(width).height(cardHeight)) {
         cards.forEachIndexed { index, card ->
             AnimatedVisibility(
@@ -511,12 +503,7 @@ private fun BlackjackHand(
                 modifier = Modifier.offset(x = overlap * index),
                 enter = fadeIn(tween(150)) + scaleIn(tween(220), initialScale = .86f) + slideInVertically(tween(260)) { -it / 2 }
             ) {
-                CasinoPlayingCard(
-                    card = card,
-                    hidden = hideHole && index == 1,
-                    width = cardWidth,
-                    height = cardHeight
-                )
+                CasinoPlayingCard(card, hideHole && index == 1, cardWidth, cardHeight)
             }
         }
     }
@@ -562,13 +549,7 @@ private fun CasinoPlayingCard(card: PlayingCard, hidden: Boolean, width: Dp, hei
                     Text(rankLabel(card.rank), color = ink, fontWeight = FontWeight.Black, fontSize = 15.sp, lineHeight = 14.sp)
                     Text(suitGlyph(card.suit), color = ink, fontWeight = FontWeight.Black, fontSize = 13.sp, lineHeight = 12.sp)
                 }
-                Text(
-                    suitGlyph(card.suit),
-                    modifier = Modifier.align(Alignment.Center),
-                    color = ink.copy(alpha = .90f),
-                    fontWeight = FontWeight.Black,
-                    fontSize = 31.sp
-                )
+                Text(suitGlyph(card.suit), Modifier.align(Alignment.Center), color = ink.copy(alpha = .90f), fontWeight = FontWeight.Black, fontSize = 31.sp)
                 Column(Modifier.align(Alignment.BottomEnd), horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(suitGlyph(card.suit), color = ink, fontWeight = FontWeight.Black, fontSize = 11.sp, lineHeight = 10.sp)
                     Text(rankLabel(card.rank), color = ink, fontWeight = FontWeight.Black, fontSize = 13.sp, lineHeight = 12.sp)
