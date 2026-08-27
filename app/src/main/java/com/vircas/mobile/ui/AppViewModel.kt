@@ -28,6 +28,7 @@ import com.vircas.mobile.game.engines.MarketSelection
 import com.vircas.mobile.game.engines.SimulatedEventResult
 import com.vircas.mobile.game.engines.SportsBettingEngine
 import com.vircas.mobile.game.engines.VirtualEvent
+import java.security.MessageDigest
 import java.util.UUID
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -45,12 +46,36 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private var interactiveRound: RoundRandom? = null
     private var interactiveWagerId: String? = null
 
-    val balance: StateFlow<Long> = container.walletRepository.balance.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WalletRepository.STARTING_BALANCE)
-    val settings: StateFlow<UserSettings> = container.settingsRepository.settings.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), UserSettings())
-    val progress: StateFlow<UserProgress> = container.progressionRepository.progress.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), UserProgress())
-    val inventory: StateFlow<List<InventoryItemEntity>> = container.inventoryRepository.items.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-    val history: StateFlow<List<GameHistoryEntity>> = container.historyRepository.recent(30).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-    val fairness: StateFlow<List<FairnessRoundEntity>> = container.fairnessRepository.recent(50).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val balance: StateFlow<Long> = container.walletRepository.balance.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5_000),
+        WalletRepository.STARTING_BALANCE
+    )
+    val settings: StateFlow<UserSettings> = container.settingsRepository.settings.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5_000),
+        UserSettings()
+    )
+    val progress: StateFlow<UserProgress> = container.progressionRepository.progress.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5_000),
+        UserProgress()
+    )
+    val inventory: StateFlow<List<InventoryItemEntity>> = container.inventoryRepository.items.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5_000),
+        emptyList()
+    )
+    val history: StateFlow<List<GameHistoryEntity>> = container.historyRepository.recent(100).stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5_000),
+        emptyList()
+    )
+    val fairness: StateFlow<List<FairnessRoundEntity>> = container.fairnessRepository.recent(100).stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5_000),
+        emptyList()
+    )
 
     /**
      * Multi-step screens call this after [beginWager], so they receive the exact provider derived
@@ -239,7 +264,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             onResult(null)
             return@launch
         }
-        val wager = container.gameLedger.begin(if (selections.size > 1) "Virtual Express" else "Virtual Single", stake)
+        val wager = container.gameLedger.begin(
+            if (selections.size > 1) "Virtual Express" else "Virtual Single",
+            stake
+        )
         if (wager == null) {
             onResult(null)
             return@launch
@@ -274,7 +302,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         if (container.inventoryRepository.remove(id)) {
             container.walletRepository.credit(item.marketValue)
             onResult(item.marketValue)
-        } else onResult(null)
+        } else {
+            onResult(null)
+        }
     }
 
     fun setSound(value: Boolean) = viewModelScope.launch { container.settingsRepository.setSound(value) }
@@ -306,7 +336,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             "debug-${current.debugSeed}-${debugRoundCounter++}"
         }
         val material = "$generatedSeed|${current.clientSeed}"
-        return RoundRandom(generatedSeed, SeededRandomProvider(material.hashCode().toLong()))
+        return RoundRandom(generatedSeed, SeededRandomProvider(seedToLong(material)))
+    }
+
+    private fun seedToLong(material: String): Long {
+        val digest = MessageDigest.getInstance("SHA-256").digest(material.toByteArray(Charsets.UTF_8))
+        return digest.take(8).fold(0L) { acc, byte ->
+            (acc shl 8) or (byte.toLong() and 0xffL)
+        }
     }
 
     private fun clearInteractiveRound() {
