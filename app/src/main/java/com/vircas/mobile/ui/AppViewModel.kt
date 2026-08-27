@@ -39,6 +39,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private var seededRandom: SeededRandomProvider? = null
     private var seededRandomSeed: Long? = null
     private var debugRoundCounter = 0L
+    private var interactiveRound: RoundRandom? = null
+    private var interactiveWagerId: String? = null
 
     val balance: StateFlow<Long> = container.walletRepository.balance.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WalletRepository.STARTING_BALANCE)
     val settings: StateFlow<UserSettings> = container.settingsRepository.settings.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), UserSettings())
@@ -47,8 +49,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val history: StateFlow<List<GameHistoryEntity>> = container.historyRepository.recent(30).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val fairness: StateFlow<List<FairnessRoundEntity>> = container.fairnessRepository.recent(50).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** Used for generating non-round demo data. Settled rounds use [roundRandom] so the logged seed reproduces the outcome. */
+    /**
+     * Multi-step screens call this after [beginWager], so they receive the exact provider derived
+     * from the seed that will later be written to Fairness. Outside an active wager it is also
+     * useful for non-round demo data generation.
+     */
     fun randomProvider(): RandomProvider {
+        interactiveRound?.let { return it.provider }
         val current = settings.value
         if (current.secureRng) return SecureRandomProvider()
         if (seededRandom == null || seededRandomSeed != current.debugSeed) {
@@ -76,8 +83,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         onResult(container.progressionRepository.claimAchievement(achievement))
     }
 
+    fun dailyMissions(progress: UserProgress): List<DailyMission> = container.progressionRepository.missions(progress)
+    fun achievements(progress: UserProgress): List<Achievement> = container.progressionRepository.achievements(progress)
+
     fun beginWager(game: String, stake: Long, onResult: (ActiveWager?) -> Unit) = viewModelScope.launch {
-        onResult(container.gameLedger.begin(game, stake))
+        val wager = container.gameLedger.begin(game, stake)
+        if (wager != null) {
+            interactiveRound = roundRandom()
+            interactiveWagerId = wager.id
+        }
+        onResult(wager)
     }
 
     fun increaseWager(wager: ActiveWager, additionalStake: Long, onResult: (ActiveWager?) -> Unit) = viewModelScope.launch {
@@ -91,19 +106,25 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         details: String = "",
         onResult: (RoundReceipt?) -> Unit = {}
     ) = viewModelScope.launch {
+        val matchingInteractive = interactiveWagerId == wager.id
+        val roundRandom = if (matchingInteractive) interactiveRound ?: roundRandom() else roundRandom()
         runCatching {
             container.gameLedger.settle(
                 wager,
                 multiplier,
                 result,
                 details,
-                generatedSeed = roundRandom().generatedSeed,
+                generatedSeed = roundRandom.generatedSeed,
                 clientSeed = settings.value.clientSeed
             )
         }.onSuccess(onResult).onFailure { onResult(null) }
+        if (matchingInteractive) clearInteractiveRound()
     }
 
-    fun cancelWager(wager: ActiveWager) = viewModelScope.launch { container.gameLedger.cancel(wager) }
+    fun cancelWager(wager: ActiveWager) = viewModelScope.launch {
+        container.gameLedger.cancel(wager)
+        if (interactiveWagerId == wager.id) clearInteractiveRound()
+    }
 
     fun playResolved(
         game: String,
@@ -236,6 +257,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         container.historyRepository.clear()
         container.fairnessRepository.clear()
         debugRoundCounter = 0L
+        clearInteractiveRound()
     }
 
     private fun roundRandom(): RoundRandom {
@@ -247,5 +269,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
         val material = "$generatedSeed|${current.clientSeed}"
         return RoundRandom(generatedSeed, SeededRandomProvider(material.hashCode().toLong()))
+    }
+
+    private fun clearInteractiveRound() {
+        interactiveRound = null
+        interactiveWagerId = null
     }
 }
