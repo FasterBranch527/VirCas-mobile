@@ -18,6 +18,9 @@ import com.vircas.mobile.core.random.RandomProvider
 import com.vircas.mobile.core.random.SecureRandomProvider
 import com.vircas.mobile.core.random.SeededRandomProvider
 import com.vircas.mobile.core.wallet.WalletRepository
+import com.vircas.mobile.game.betting.UniversalBetSelection
+import com.vircas.mobile.game.betting.UniversalBetSettlement
+import com.vircas.mobile.game.betting.UniversalBetSlipEngine
 import com.vircas.mobile.game.engines.CaseDefinition
 import com.vircas.mobile.game.engines.CaseOpeningResult
 import com.vircas.mobile.game.engines.CasesEngine
@@ -221,6 +224,41 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 settings.value.clientSeed
             )
             receipt to result
+        }.onSuccess(onResult).onFailure {
+            container.gameLedger.cancel(wager)
+            onResult(null)
+        }
+    }
+
+    fun placeUniversalBetSlip(
+        selections: List<UniversalBetSelection>,
+        stake: Long,
+        onResult: (Pair<RoundReceipt, UniversalBetSettlement>?) -> Unit = {}
+    ) = viewModelScope.launch {
+        if (selections.isEmpty() || stake <= 0L) {
+            onResult(null)
+            return@launch
+        }
+        val wager = container.gameLedger.begin(if (selections.size > 1) "Virtual Express" else "Virtual Single", stake)
+        if (wager == null) {
+            onResult(null)
+            return@launch
+        }
+        runCatching {
+            val roundRandom = roundRandom()
+            val engine = UniversalBetSlipEngine(roundRandom.provider)
+            val slip = engine.create(selections, stake)
+            val settlement = engine.settle(slip)
+            container.progressionRepository.recordVirtualBet()
+            val receipt = container.gameLedger.settle(
+                wager = wager,
+                multiplier = settlement.payoutMultiplier,
+                result = if (settlement.won) "Bet slip won" else "Bet slip lost",
+                details = settlement.resultLines.joinToString(" | "),
+                generatedSeed = roundRandom.generatedSeed,
+                clientSeed = settings.value.clientSeed
+            )
+            receipt to settlement
         }.onSuccess(onResult).onFailure {
             container.gameLedger.cancel(wager)
             onResult(null)
