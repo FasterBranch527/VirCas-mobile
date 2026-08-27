@@ -30,7 +30,8 @@ class WalletRepository(private val context: Context) {
         if (amount <= 0) return
         context.walletDataStore.edit { prefs ->
             val current = prefs[balanceKey] ?: STARTING_BALANCE
-            prefs[balanceKey] = current + amount
+            val room = Long.MAX_VALUE - current
+            prefs[balanceKey] = current + amount.coerceAtMost(room)
         }
     }
 
