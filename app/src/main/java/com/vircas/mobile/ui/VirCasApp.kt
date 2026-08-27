@@ -103,11 +103,17 @@ private fun VirCasNavigation(appViewModel: AppViewModel) {
                 )
             }
             composable("game/{gameId}") { entry ->
-                GamePlayScreen(
-                    gameId = entry.arguments?.getString("gameId") ?: "dice",
-                    viewModel = appViewModel,
-                    onBack = { nav.popBackStack() }
-                )
+                val gameId = entry.arguments?.getString("gameId") ?: "dice"
+                val back = { nav.popBackStack(); Unit }
+                when (gameId) {
+                    "mines" -> MinesGameScreen(appViewModel, back)
+                    "crash" -> CrashGameScreen(appViewModel, back)
+                    "blackjack" -> BlackjackGameScreen(appViewModel, back)
+                    "hilo" -> HiLoGameScreen(appViewModel, back)
+                    "towers" -> TowersGameScreen(appViewModel, back)
+                    "ladder" -> LadderGameScreen(appViewModel, back)
+                    else -> GamePlayScreen(gameId = gameId, viewModel = appViewModel, onBack = back)
+                }
             }
             composable("cases") { CasesHubScreen(appViewModel, onBack = { nav.popBackStack() }) }
             composable("history") { HistoryHubScreen(appViewModel, onBack = { nav.popBackStack() }) }
