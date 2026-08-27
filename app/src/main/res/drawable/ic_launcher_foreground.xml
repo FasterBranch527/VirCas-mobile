@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- roulette wheel -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#F1C45A"
+        android:strokeWidth="4"
+        android:strokeLineCap="round"
+        android:pathData="M54,18 A36,36 0,1 1,54,90 A36,36 0,1 1,54,18" />
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#B67A25"
+        android:strokeWidth="2"
+        android:pathData="M54,27 A27,27 0,1 1,54,81 A27,27 0,1 1,54,27" />
+
+    <!-- spokes -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#E6B44A"
+        android:strokeWidth="2.4"
+        android:strokeLineCap="round"
+        android:pathData="M54,28 L54,42 M54,66 L54,80 M28,54 L42,54 M66,54 L80,54 M35.6,35.6 L45.5,45.5 M62.5,62.5 L72.4,72.4 M72.4,35.6 L62.5,45.5 M45.5,62.5 L35.6,72.4" />
+
+    <!-- center hub -->
+    <path
+        android:fillColor="#D74A39"
+        android:pathData="M54,47 A7,7 0,1 1,54,61 A7,7 0,1 1,54,47" />
+    <path
+        android:fillColor="#F6D675"
+        android:pathData="M54,50 A4,4 0,1 1,54,58 A4,4 0,1 1,54,50" />
+
+    <!-- bold VirCas V -->
+    <path
+        android:fillColor="#FFE08A"
+        android:strokeColor="#9E641E"
+        android:strokeWidth="1.2"
+        android:strokeLineJoin="round"
+        android:pathData="M34,33 L48.5,33 L54,46 L59.5,33 L74,33 L57.5,73 L50.5,73 Z" />
+
+    <!-- roulette ball -->
+    <path
+        android:fillColor="#FFFDF7"
+        android:strokeColor="#D4D4D4"
+        android:strokeWidth="1"
+        android:pathData="M78,25 A5,5 0,1 1,78,35 A5,5 0,1 1,78,25" />
+</vector>
