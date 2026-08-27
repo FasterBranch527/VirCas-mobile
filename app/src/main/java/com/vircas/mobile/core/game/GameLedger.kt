@@ -35,6 +35,12 @@ class GameLedger(
         return ActiveWager(UUID.randomUUID().toString(), game, stake, System.currentTimeMillis())
     }
 
+    suspend fun increase(wager: ActiveWager, additionalStake: Long): ActiveWager? {
+        if (additionalStake <= 0L || wager.stake > Long.MAX_VALUE - additionalStake) return null
+        if (!wallet.debit(additionalStake)) return null
+        return wager.copy(stake = wager.stake + additionalStake)
+    }
+
     suspend fun settle(
         wager: ActiveWager,
         multiplier: Double,
