@@ -164,6 +164,8 @@ class ProgressionRepository(private val context: Context) {
         DailyMission("variety3", "Play 3 different games", progress.dailyDistinctGames.size, 3, 1_200, 125)
     )
 
+    suspend fun reset() = context.progressionDataStore.edit { it.clear() }
+
     private suspend fun incrementDaily(key: androidx.datastore.preferences.core.Preferences.Key<Int>) {
         val today = LocalDate.now().toEpochDay()
         context.progressionDataStore.edit { p ->
