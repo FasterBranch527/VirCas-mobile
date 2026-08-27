@@ -1,5 +1,7 @@
 package com.vircas.mobile.ui
 
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Casino
 import androidx.compose.material.icons.rounded.Home
@@ -15,20 +17,15 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.layout.padding
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import com.vircas.mobile.VirCasApplication
-import com.vircas.mobile.core.data.UserSettings
-import kotlinx.coroutines.launch
 
 private data class NavItem(val route: String, val label: String, val icon: ImageVector)
 
@@ -41,14 +38,11 @@ private val navItems = listOf(
 )
 
 @Composable
-fun VirCasApp() {
-    val application = LocalContext.current.applicationContext as VirCasApplication
-    val container = application.container
-    val settings by container.settingsRepository.settings.collectAsState(initial = UserSettings())
-    val scope = rememberCoroutineScope()
+fun VirCasApp(appViewModel: AppViewModel = viewModel()) {
+    val settings by appViewModel.settings.collectAsState()
 
     if (!settings.onboardingComplete) {
-        OnboardingScreen(onComplete = { scope.launch { container.settingsRepository.completeOnboarding() } })
+        OnboardingScreen(onComplete = appViewModel::completeOnboarding)
         return
     }
 
@@ -82,36 +76,38 @@ fun VirCasApp() {
         NavHost(
             navController = nav,
             startDestination = "home",
-            modifier = Modifier.padding(if (showBottomBar) padding else androidx.compose.foundation.layout.PaddingValues(0.dp))
+            modifier = Modifier.padding(if (showBottomBar) padding else PaddingValues(0.dp))
         ) {
             composable("home") {
-                HomeScreen(container, onGame = { nav.navigate("game/$it") })
+                HomeHubScreen(appViewModel, onGame = { nav.navigate("game/$it") })
             }
             composable("games") {
-                GamesScreen(
+                GamesHubScreen(
                     onGame = { nav.navigate("game/$it") },
                     onCases = { nav.navigate("cases") }
                 )
             }
-            composable("bets") { BetsScreen(container) }
-            composable("inventory") { InventoryScreen(container) }
+            composable("bets") { BetsHubScreen(appViewModel) }
+            composable("inventory") { InventoryHubScreen(appViewModel) }
             composable("profile") {
-                ProfileScreen(
-                    container = container,
+                ProfileHubScreen(
+                    viewModel = appViewModel,
                     onHistory = { nav.navigate("history") },
-                    onFairness = { nav.navigate("fairness") }
+                    onFairness = { nav.navigate("fairness") },
+                    onSettings = { nav.navigate("settings") }
                 )
             }
             composable("game/{gameId}") { entry ->
                 GamePlayScreen(
                     gameId = entry.arguments?.getString("gameId") ?: "dice",
-                    container = container,
+                    viewModel = appViewModel,
                     onBack = { nav.popBackStack() }
                 )
             }
-            composable("cases") { CasesScreen(container, onBack = { nav.popBackStack() }) }
-            composable("history") { HistoryScreen(container, onBack = { nav.popBackStack() }) }
-            composable("fairness") { FairnessScreen(container, onBack = { nav.popBackStack() }) }
+            composable("cases") { CasesHubScreen(appViewModel, onBack = { nav.popBackStack() }) }
+            composable("history") { HistoryHubScreen(appViewModel, onBack = { nav.popBackStack() }) }
+            composable("fairness") { FairnessHubScreen(appViewModel, onBack = { nav.popBackStack() }) }
+            composable("settings") { SettingsHubScreen(appViewModel, onBack = { nav.popBackStack() }) }
         }
     }
 }
