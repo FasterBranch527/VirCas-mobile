@@ -9,20 +9,21 @@ import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material3.Button
@@ -45,6 +46,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.vircas.mobile.game.engines.RouletteBet
@@ -164,14 +166,8 @@ fun RealisticRouletteGameScreen(viewModel: AppViewModel, onBack: () -> Unit) {
                 launch {
                     val up = (durationMs * 0.42f).toInt().coerceAtLeast(1)
                     val down = (durationMs - up).coerceAtLeast(1)
-                    ballHop.animateTo(
-                        targetValue = 1f,
-                        animationSpec = tween(durationMillis = up, easing = FastOutSlowInEasing)
-                    )
-                    ballHop.animateTo(
-                        targetValue = 0f,
-                        animationSpec = tween(durationMillis = down, easing = FastOutSlowInEasing)
-                    )
+                    ballHop.animateTo(1f, tween(durationMillis = up, easing = FastOutSlowInEasing))
+                    ballHop.animateTo(0f, tween(durationMillis = down, easing = FastOutSlowInEasing))
                 }
             }
         }
@@ -181,8 +177,6 @@ fun RealisticRouletteGameScreen(viewModel: AppViewModel, onBack: () -> Unit) {
         spinPhase = RouletteSpinPhase.WHEEL_AND_BALL
         status = "NO MORE BETS · wheel and ball in motion"
 
-        // Phase 1: wheel and ball move together, but the ball keeps linear speed while the wheel decelerates.
-        // This coroutine completes only when the wheel has fully stopped.
         coroutineScope {
             launch {
                 wheelRotation.animateTo(
@@ -214,8 +208,6 @@ fun RealisticRouletteGameScreen(viewModel: AppViewModel, onBack: () -> Unit) {
             }
         }
 
-        // Phase 2: the wheel is now stationary. The ball keeps running around the outer track
-        // for another turn and gradually spirals toward the pocket ring.
         spinPhase = RouletteSpinPhase.BALL_COAST
         status = "WHEEL STOPPED · ball still rolling"
         val approachIndex = (winningIndex + 4) % rouletteWheelOrder.size
@@ -239,8 +231,6 @@ fun RealisticRouletteGameScreen(viewModel: AppViewModel, onBack: () -> Unit) {
             }
         }
 
-        // Phase 3: deterministic neighboring-pocket hops. Since the ball travels counter-clockwise,
-        // it crosses +3, +2, +1 and finally the winning pocket in the physical wheel order.
         spinPhase = RouletteSpinPhase.POCKET_BOUNCE
         status = "BALL IN THE POCKETS · ${round.number} is locked"
         hopToPocket((winningIndex + 3) % rouletteWheelOrder.size, 0.800f, hopDuration)
@@ -248,7 +238,6 @@ fun RealisticRouletteGameScreen(viewModel: AppViewModel, onBack: () -> Unit) {
         hopToPocket((winningIndex + 1) % rouletteWheelOrder.size, 0.770f, hopDuration)
         hopToPocket(winningIndex, 0.752f, if (reduced) hopDuration else 210)
 
-        // Phase 4: the ball is already centered over the winning slot and now visibly drops into it.
         spinPhase = RouletteSpinPhase.BALL_DROP
         status = "BALL DROPPING · ${round.number} ${round.color.name}"
         coroutineScope {
@@ -273,7 +262,6 @@ fun RealisticRouletteGameScreen(viewModel: AppViewModel, onBack: () -> Unit) {
         }
 
         if (pending?.wager?.id == round.wager.id) {
-            // Keep animation values numerically small between rounds without changing their visual angle.
             wheelRotation.snapTo(normalizeRouletteAngle(wheelRotation.value))
             ballRotation.snapTo(normalizeRouletteAngle(ballRotation.value))
             lastResult = round.number
@@ -294,7 +282,51 @@ fun RealisticRouletteGameScreen(viewModel: AppViewModel, onBack: () -> Unit) {
         }
     }
 
-    Column(
+    fun spin() {
+        val frozenBets = bets.mapValues { (_, stack) -> stack.toList() }
+        val stake = frozenBets.values.sumOf { it.sum() }
+        if (stake <= 0L) {
+            status = "Place at least one chip first."
+            return
+        }
+        if (stake > balance) {
+            status = "Total chips exceed your virtual balance."
+            return
+        }
+
+        status = "NO MORE BETS · result locked before animation"
+        lastResult = null
+        viewModel.beginWager("Roulette", stake) { wager ->
+            if (wager == null) {
+                status = "Could not start the spin: check the virtual balance."
+            } else {
+                val random = viewModel.randomProvider()
+                val engine = RouletteEngine(random)
+                val number = random.nextInt(0, 37)
+                val color = RouletteEngine.colorOf(number)
+                val payout = frozenBets.entries.sumOf { (bet, chips) ->
+                    val amount = chips.sum()
+                    val resolved = engine.resolve(number, bet)
+                    if (resolved.won) (amount * resolved.payoutMultiplier).toLong() else 0L
+                }
+                val multiplier = if (payout == 0L) 0.0 else Math.nextUp(payout.toDouble() / stake.toDouble())
+
+                previousBets = frozenBets
+                pending = RoulettePendingRound(
+                    wager = wager,
+                    number = number,
+                    color = color,
+                    payout = payout,
+                    payoutMultiplier = multiplier,
+                    bets = frozenBets
+                )
+                spinning = true
+                spinSerial++
+            }
+        }
+    }
+
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
             .background(
@@ -302,156 +334,138 @@ fun RealisticRouletteGameScreen(viewModel: AppViewModel, onBack: () -> Unit) {
                     listOf(Color(0xFF070B09), Color(0xFF10251A), Color(0xFF07110C))
                 )
             )
-            .verticalScroll(rememberScrollState())
-            .padding(bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+            .windowInsetsPadding(WindowInsets.safeDrawing)
+            .padding(horizontal = 6.dp, vertical = 4.dp)
     ) {
-        RouletteTopBar(
-            balance = balance,
-            totalBet = totalBet,
-            spinning = spinning,
-            onBack = if (spinning) ::settleAndLeave else onBack
-        )
+        val landscape = maxWidth > maxHeight * 1.15f
 
-        BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
-            val availableWidth = maxWidth
-            if (availableWidth >= 760.dp) {
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            RouletteTopBar(
+                balance = balance,
+                totalBet = totalBet,
+                spinning = spinning,
+                onBack = if (spinning) ::settleAndLeave else onBack
+            )
+
+            if (landscape) {
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                    verticalAlignment = Alignment.Top
+                    modifier = Modifier.fillMaxWidth().weight(1f),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    RouletteWheelPanel(
-                        wheelRotation = wheelRotation.value,
-                        ballRotation = ballRotation.value,
-                        ballRadius = ballRadius.value,
-                        ballHop = ballHop.value,
-                        ballDrop = ballDrop.value,
-                        phase = spinPhase,
-                        result = lastResult,
-                        modifier = Modifier.width(330.dp)
-                    )
-                    RouletteBettingTable(
-                        bets = bets,
-                        result = lastResult,
-                        enabled = !spinning,
-                        onAdd = ::addChip,
-                        onRemove = ::removeChip,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-            } else {
-                val wheelWidth = (availableWidth - 16.dp).coerceAtMost(330.dp).coerceAtLeast(240.dp)
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    RouletteWheelPanel(
-                        wheelRotation = wheelRotation.value,
-                        ballRotation = ballRotation.value,
-                        ballRadius = ballRadius.value,
-                        ballHop = ballHop.value,
-                        ballDrop = ballDrop.value,
-                        phase = spinPhase,
-                        result = lastResult,
-                        modifier = Modifier.width(wheelWidth)
-                    )
-                    RouletteBettingTable(
-                        bets = bets,
-                        result = lastResult,
-                        enabled = !spinning,
-                        onAdd = ::addChip,
-                        onRemove = ::removeChip,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            }
-        }
-
-        RouletteControls(
-            balance = balance,
-            selectedChip = selectedChip,
-            bets = bets,
-            previousBets = previousBets,
-            spinning = spinning,
-            onChipSelected = { selectedChip = it },
-            onClear = {
-                bets = emptyMap()
-                status = "Table cleared."
-            },
-            onRepeat = {
-                val previousTotal = previousBets.values.sumOf { it.sum() }
-                if (previousTotal <= balance) {
-                    bets = previousBets
-                    status = "Repeated ${formatRouletteVc(previousTotal)} layout."
-                } else {
-                    status = "Previous layout is larger than the current balance."
-                }
-            },
-            onSpin = {
-                val frozenBets = bets.mapValues { (_, stack) -> stack.toList() }
-                val stake = frozenBets.values.sumOf { it.sum() }
-                if (stake <= 0L) {
-                    status = "Place at least one chip first."
-                    return@RouletteControls
-                }
-                if (stake > balance) {
-                    status = "Total chips exceed your virtual balance."
-                    return@RouletteControls
-                }
-
-                status = "NO MORE BETS · result locked before animation"
-                lastResult = null
-                viewModel.beginWager("Roulette", stake) { wager ->
-                    if (wager == null) {
-                        status = "Could not start the spin: check the virtual balance."
-                    } else {
-                        val random = viewModel.randomProvider()
-                        val engine = RouletteEngine(random)
-                        val number = random.nextInt(0, 37)
-                        val color = RouletteEngine.colorOf(number)
-                        val payout = frozenBets.entries.sumOf { (bet, chips) ->
-                            val amount = chips.sum()
-                            val resolved = engine.resolve(number, bet)
-                            if (resolved.won) {
-                                (amount * resolved.payoutMultiplier).toLong()
-                            } else {
-                                0L
-                            }
-                        }
-                        val multiplier = if (payout == 0L) {
-                            0.0
-                        } else {
-                            Math.nextUp(payout.toDouble() / stake.toDouble())
-                        }
-
-                        previousBets = frozenBets
-                        pending = RoulettePendingRound(
-                            wager = wager,
-                            number = number,
-                            color = color,
-                            payout = payout,
-                            payoutMultiplier = multiplier,
-                            bets = frozenBets
+                    BoxWithConstraints(
+                        modifier = Modifier.fillMaxSize().weight(0.72f),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        val wheelSize = minOf(maxWidth, maxHeight).coerceAtMost(300.dp)
+                        RouletteWheelPanel(
+                            wheelRotation = wheelRotation.value,
+                            ballRotation = ballRotation.value,
+                            ballRadius = ballRadius.value,
+                            ballHop = ballHop.value,
+                            ballDrop = ballDrop.value,
+                            phase = spinPhase,
+                            result = lastResult,
+                            modifier = Modifier.size(wheelSize),
+                            compact = true
                         )
-                        spinning = true
-                        spinSerial++
+                    }
+
+                    Column(
+                        modifier = Modifier.fillMaxSize().weight(1.28f),
+                        verticalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
+                        RouletteBettingTable(
+                            bets = bets,
+                            result = lastResult,
+                            enabled = !spinning,
+                            onAdd = ::addChip,
+                            onRemove = ::removeChip,
+                            modifier = Modifier.fillMaxWidth(),
+                            compact = true
+                        )
+                        Spacer(Modifier.weight(1f))
+                        RouletteControls(
+                            balance = balance,
+                            selectedChip = selectedChip,
+                            bets = bets,
+                            previousBets = previousBets,
+                            spinning = spinning,
+                            onChipSelected = { selectedChip = it },
+                            onClear = {
+                                bets = emptyMap()
+                                status = "Table cleared."
+                            },
+                            onRepeat = {
+                                val previousTotal = previousBets.values.sumOf { it.sum() }
+                                if (previousTotal <= balance) {
+                                    bets = previousBets
+                                    status = "Repeated ${formatRouletteVc(previousTotal)} layout."
+                                } else {
+                                    status = "Previous layout is larger than the current balance."
+                                }
+                            },
+                            onSpin = ::spin
+                        )
+                        RouletteStatusBar(status)
                     }
                 }
-            }
-        )
+            } else {
+                BoxWithConstraints(
+                    modifier = Modifier.fillMaxWidth().weight(1f),
+                    contentAlignment = Alignment.Center
+                ) {
+                    val wheelSize = minOf(maxWidth * 0.72f, maxHeight).coerceAtMost(235.dp)
+                    RouletteWheelPanel(
+                        wheelRotation = wheelRotation.value,
+                        ballRotation = ballRotation.value,
+                        ballRadius = ballRadius.value,
+                        ballHop = ballHop.value,
+                        ballDrop = ballDrop.value,
+                        phase = spinPhase,
+                        result = lastResult,
+                        modifier = Modifier.size(wheelSize),
+                        compact = true
+                    )
+                }
 
-        Surface(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-            shape = RoundedCornerShape(18.dp),
-            color = Color(0xAA0B1510),
-            border = BorderStroke(1.dp, Color(0xFF2D4B39))
-        ) {
-            Text(
-                status,
-                Modifier.padding(14.dp),
-                color = Color(0xFFD8E6DC),
-                fontWeight = FontWeight.SemiBold
-            )
+                RouletteBettingTable(
+                    bets = bets,
+                    result = lastResult,
+                    enabled = !spinning,
+                    onAdd = ::addChip,
+                    onRemove = ::removeChip,
+                    modifier = Modifier.fillMaxWidth(),
+                    compact = true
+                )
+
+                RouletteControls(
+                    balance = balance,
+                    selectedChip = selectedChip,
+                    bets = bets,
+                    previousBets = previousBets,
+                    spinning = spinning,
+                    onChipSelected = { selectedChip = it },
+                    onClear = {
+                        bets = emptyMap()
+                        status = "Table cleared."
+                    },
+                    onRepeat = {
+                        val previousTotal = previousBets.values.sumOf { it.sum() }
+                        if (previousTotal <= balance) {
+                            bets = previousBets
+                            status = "Repeated ${formatRouletteVc(previousTotal)} layout."
+                        } else {
+                            status = "Previous layout is larger than the current balance."
+                        }
+                    },
+                    onSpin = ::spin
+                )
+                RouletteStatusBar(status)
+            }
         }
     }
 }
@@ -477,10 +491,10 @@ private fun RouletteTopBar(
     onBack: () -> Unit
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+        modifier = Modifier.fillMaxWidth().height(42.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        IconButton(onClick = onBack) {
+        IconButton(onClick = onBack, modifier = Modifier.size(38.dp)) {
             Icon(Icons.Rounded.ArrowBack, contentDescription = "Back", tint = Color(0xFFF3D8A1))
         }
         Column(Modifier.weight(1f)) {
@@ -488,33 +502,19 @@ private fun RouletteTopBar(
                 "EUROPEAN ROULETTE",
                 color = Color(0xFFFFE4AF),
                 fontWeight = FontWeight.Black,
-                fontSize = 22.sp
+                fontSize = 16.sp,
+                maxLines = 1
             )
             Text(
-                if (spinning) "no more bets · ball in motion" else "0–36 · local virtual table",
+                if (spinning) "no more bets · ball in motion" else "0–36 · virtual table",
                 color = Color(0xFF92A99B),
-                fontSize = 11.sp
+                fontSize = 8.sp,
+                maxLines = 1
             )
         }
-        RouletteHeaderStat("BALANCE", formatRouletteVc(balance))
-        Spacer(Modifier.width(8.dp))
-        RouletteHeaderStat("ON TABLE", formatRouletteVc(totalBet))
-    }
-}
-
-@Composable
-private fun RouletteHeaderStat(label: String, value: String) {
-    Surface(
-        shape = RoundedCornerShape(14.dp),
-        color = Color(0xFF151C17),
-        border = BorderStroke(1.dp, Color(0xFF35463A))
-    ) {
-        Column(
-            Modifier.padding(horizontal = 11.dp, vertical = 7.dp),
-            horizontalAlignment = Alignment.End
-        ) {
-            Text(label, color = Color(0xFF829489), fontSize = 8.sp, fontWeight = FontWeight.Bold)
-            Text(value, color = Color(0xFFFFE3AA), fontWeight = FontWeight.Black, fontSize = 12.sp)
+        Column(horizontalAlignment = Alignment.End) {
+            Text("BAL ${formatRouletteVc(balance)}", color = Color(0xFFFFE3AA), fontSize = 9.sp, fontWeight = FontWeight.Black)
+            Text("BET ${formatRouletteVc(totalBet)}", color = Color(0xFF9CB1A3), fontSize = 8.sp, fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -533,42 +533,57 @@ private fun RouletteControls(
 ) {
     val totalBet = bets.values.sumOf { it.sum() }
     Surface(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-        shape = RoundedCornerShape(24.dp),
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
         color = Color(0xFF17120D),
         border = BorderStroke(1.dp, Color(0xFF6F542D))
     ) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("CHIP VALUE", color = Color(0xFFBDAA88), fontWeight = FontWeight.Bold, fontSize = 11.sp)
-            Row(
-                modifier = Modifier.horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                rouletteChipValues.forEach { value ->
-                    RouletteChipToken(
-                        value = value,
-                        selected = selectedChip == value,
-                        modifier = Modifier.size(if (selectedChip == value) 58.dp else 52.dp),
-                        onClick = { if (!spinning) onChipSelected(value) }
-                    )
+        Column(
+            Modifier.padding(horizontal = 7.dp, vertical = 6.dp),
+            verticalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                val chipSize = when {
+                    maxWidth < 300.dp -> 34.dp
+                    maxWidth < 360.dp -> 38.dp
+                    else -> 41.dp
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    rouletteChipValues.forEach { value ->
+                        RouletteChipToken(
+                            value = value,
+                            selected = selectedChip == value,
+                            modifier = Modifier.size(chipSize),
+                            onClick = { if (!spinning) onChipSelected(value) }
+                        )
+                    }
                 }
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(9.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 OutlinedButton(
                     onClick = onClear,
                     enabled = !spinning && bets.isNotEmpty(),
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f).height(38.dp),
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
                 ) {
-                    Text("CLEAR")
+                    Text("CLEAR", fontSize = 9.sp)
                 }
                 OutlinedButton(
                     onClick = onRepeat,
                     enabled = !spinning && previousBets.isNotEmpty() && previousBets.values.sumOf { it.sum() } <= balance,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f).height(38.dp),
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
                 ) {
-                    Text("REPEAT")
+                    Text("REPEAT", fontSize = 9.sp)
                 }
                 Button(
                     onClick = onSpin,
@@ -577,11 +592,32 @@ private fun RouletteControls(
                         containerColor = Color(0xFF2D7C3E),
                         contentColor = Color.White
                     ),
-                    modifier = Modifier.weight(1.25f)
+                    modifier = Modifier.weight(1.25f).height(38.dp),
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
                 ) {
-                    Text(if (spinning) "SPINNING…" else "SPIN", fontWeight = FontWeight.Black)
+                    Text(if (spinning) "SPIN…" else "SPIN", fontWeight = FontWeight.Black, fontSize = 10.sp)
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun RouletteStatusBar(status: String) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(10.dp),
+        color = Color(0xAA0B1510),
+        border = BorderStroke(1.dp, Color(0xFF2D4B39))
+    ) {
+        Text(
+            text = status,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+            color = Color(0xFFD8E6DC),
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 9.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
