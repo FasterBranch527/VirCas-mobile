@@ -112,19 +112,19 @@ private fun VirCasNavigation(appViewModel: AppViewModel) {
                 val gameId = entry.arguments?.getString("gameId") ?: "dice"
                 val back = { nav.popBackStack(); Unit }
                 when (gameId) {
-                    "dice" -> DiceGameScreen(appViewModel, back)
+                    "dice" -> PremiumDiceGameScreen(appViewModel, back)
                     "coinflip" -> PremiumCoinflipGameScreen(appViewModel, back)
-                    "wheel" -> WheelGameScreen(appViewModel, back)
+                    "wheel" -> PremiumWheelGameScreen(appViewModel, back)
                     "roulette" -> RealisticRouletteGameScreen(appViewModel, back)
-                    "slots" -> SlotsGameScreen(appViewModel, back)
-                    "plinko" -> PlinkoGameScreen(appViewModel, back)
-                    "mines" -> MinesGameScreen(appViewModel, back)
+                    "slots" -> PremiumSlotsGameScreen(appViewModel, back)
+                    "plinko" -> PremiumPlinkoGameScreen(appViewModel, back)
+                    "mines" -> PremiumMinesGameScreen(appViewModel, back)
                     "crash" -> CinematicCrashGameScreen(appViewModel, back)
                     "blackjack" -> FullBlackjackGameScreen(appViewModel, back)
-                    "hilo" -> HiLoGameScreen(appViewModel, back)
-                    "towers" -> TowersGameScreen(appViewModel, back)
-                    "ladder" -> LadderGameScreen(appViewModel, back)
-                    "horse" -> HorseRacingGameScreen(appViewModel, back)
+                    "hilo" -> PremiumHiLoGameScreen(appViewModel, back)
+                    "towers" -> PremiumTowersGameScreen(appViewModel, back)
+                    "ladder" -> PremiumLadderGameScreen(appViewModel, back)
+                    "horse" -> PremiumHorseRacingGameScreen(appViewModel, back)
                     else -> GamePlayScreen(gameId = gameId, viewModel = appViewModel, onBack = back)
                 }
             }
