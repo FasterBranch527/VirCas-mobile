@@ -12,7 +12,7 @@ val stableDevKeystoreSource = file("signing/vircas-dev.keystore.b64")
 val stableDevKeystore = layout.buildDirectory.file("signing/vircas-dev.keystore").get().asFile
 
 // CI runners are ephemeral, so Android's default debug.keystore changes between runs.
-// Materialize one project-owned DEVELOPMENT key instead so debug APKs can update each other.
+// Materialize one project-owned key so every distributable VirCas APK keeps the same signer.
 if (!stableDevKeystore.exists()) {
     stableDevKeystore.parentFile.mkdirs()
     stableDevKeystore.writeBytes(
@@ -36,20 +36,28 @@ android {
     }
 
     signingConfigs {
-        create("stableDebug") {
+        create("stable") {
             storeFile = stableDevKeystore
             storePassword = "vircas-dev-signing"
             keyAlias = "vircas-dev"
             keyPassword = "vircas-dev-signing"
+            enableV1Signing = true
+            enableV2Signing = true
+            enableV3Signing = true
+            enableV4Signing = true
         }
     }
 
     buildTypes {
         debug {
-            signingConfig = signingConfigs.getByName("stableDebug")
+            signingConfig = signingConfigs.getByName("stable")
         }
         release {
+            signingConfig = signingConfigs.getByName("stable")
+            isDebuggable = false
+            isJniDebuggable = false
             isMinifyEnabled = false
+            isShrinkResources = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
