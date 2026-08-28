@@ -12,12 +12,15 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -53,7 +56,6 @@ import androidx.compose.ui.unit.sp
 import com.vircas.mobile.core.game.ActiveWager
 import com.vircas.mobile.game.engines.CrashEngine
 import com.vircas.mobile.game.engines.CrashRound
-import kotlin.math.min
 
 private enum class CrashScreenPhase { READY, RUNNING, CRASHED }
 private val CrashGreen = Color(0xFF5CF2A5)
@@ -128,6 +130,7 @@ fun CinematicCrashGameScreen(viewModel: AppViewModel, onBack: () -> Unit) {
                     listOf(Color(0xFF07100E), Color(0xFF080D0C), Color(0xFF050807))
                 )
             )
+            .windowInsetsPadding(WindowInsets.safeDrawing)
     ) {
         val landscape = maxWidth > maxHeight
         val compact = maxHeight < 680.dp
@@ -357,7 +360,7 @@ private fun CrashControlColumn(
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("COLLECT ${"%.2f".format(multiplier)}x", fontWeight = FontWeight.Black, fontSize = if (compact) 13.sp else 15.sp)
-                        Text("${formatShellVc(safeCrashPayout(stakeText.toLongOrNull() ?: 0L, multiplier))}", fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                        Text(formatShellVc(safeCrashPayout(stakeText.toLongOrNull() ?: 0L, multiplier)), fontSize = 9.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             } else {
