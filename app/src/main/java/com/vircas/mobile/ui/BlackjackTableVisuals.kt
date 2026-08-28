@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -52,6 +51,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.vircas.mobile.game.engines.BlackjackEngine
 import com.vircas.mobile.game.engines.BlackjackHandState
 import com.vircas.mobile.game.engines.BlackjackTableHand
 import com.vircas.mobile.game.engines.PlayingCard
@@ -143,8 +143,8 @@ fun BlackjackDealerArea(
     val visible = cards.take(shownCount.coerceAtMost(cards.size))
     val score = when {
         visible.isEmpty() -> "–"
-        !holeRevealed && visible.size >= 2 -> "${com.vircas.mobile.game.engines.BlackjackEngine.score(listOf(visible.first())).total}+?"
-        else -> com.vircas.mobile.game.engines.BlackjackEngine.score(visible).total.toString()
+        !holeRevealed && visible.size >= 2 -> "${BlackjackEngine.score(listOf(visible.first())).total}+?"
+        else -> BlackjackEngine.score(visible).total.toString()
     }
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -180,7 +180,11 @@ fun BlackjackPlayerArea(
     ) {
         hands.forEachIndexed { index, hand ->
             val active = index == activeIndex
-            val accent = handStateColor(hand.state, active)
+            val shown = shownCounts.getOrElse(index) { hand.cards.size }.coerceIn(0, hand.cards.size)
+            val visibleCards = hand.cards.take(shown)
+            val visibleScore = if (visibleCards.isEmpty()) "–" else BlackjackEngine.score(visibleCards).total.toString()
+            val revealComplete = shown >= hand.cards.size
+            val accent = handStateColor(if (revealComplete) hand.state else BlackjackHandState.ACTIVE, active)
             Surface(
                 modifier = Modifier.weight(1f),
                 shape = RoundedCornerShape(if (compact) 14.dp else 18.dp),
@@ -202,7 +206,7 @@ fun BlackjackPlayerArea(
                         )
                         Spacer(Modifier.width(5.dp))
                         Text(
-                            hand.score.total.toString(),
+                            visibleScore,
                             color = Color.White,
                             fontSize = if (hands.size >= 3) 11.sp else 13.sp,
                             fontWeight = FontWeight.Black
@@ -210,7 +214,7 @@ fun BlackjackPlayerArea(
                     }
                     Spacer(Modifier.height(3.dp))
                     BlackjackCardFan(
-                        cards = hand.cards.take(shownCounts.getOrElse(index) { hand.cards.size }),
+                        cards = visibleCards,
                         hiddenIndex = -1,
                         cardWidth = cardWidth,
                         cardHeight = cardHeight,
@@ -222,7 +226,7 @@ fun BlackjackPlayerArea(
                         units = hand.betUnits,
                         compact = hands.size >= 3
                     )
-                    if (hand.state != BlackjackHandState.ACTIVE) {
+                    if (revealComplete && hand.state != BlackjackHandState.ACTIVE) {
                         Text(
                             hand.state.name,
                             color = accent,
@@ -392,7 +396,7 @@ private fun BlackjackCardFan(
     val totalWidth = if (cards.isEmpty()) cardWidth else cardWidth + overlap * (cards.size - 1)
     Box(Modifier.width(totalWidth).height(cardHeight)) {
         cards.forEachIndexed { index, card ->
-            androidx.compose.runtime.key("${card.rank}-${card.suit}-$index-${cards.size}") {
+            androidx.compose.runtime.key("${card.rank}-${card.suit}-$index") {
                 BlackjackAnimatedCard(
                     card = card,
                     hidden = index == hiddenIndex,
@@ -416,8 +420,8 @@ private fun BlackjackAnimatedCard(
     dealFromRight: Boolean
 ) {
     val density = LocalDensity.current.density
-    val entrance = remember(card, width, height) { Animatable(0f) }
-    LaunchedEffect(card, width, height) {
+    val entrance = remember(card) { Animatable(0f) }
+    LaunchedEffect(card) {
         entrance.snapTo(0f)
         entrance.animateTo(1f, tween(430, easing = FastOutSlowInEasing))
     }
