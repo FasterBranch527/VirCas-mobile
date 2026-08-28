@@ -113,7 +113,7 @@ private fun VirCasNavigation(appViewModel: AppViewModel) {
                 val back = { nav.popBackStack(); Unit }
                 when (gameId) {
                     "dice" -> PremiumDiceGameScreen(appViewModel, back)
-                    "coinflip" -> LuxuryCoinflip3DGameScreen(appViewModel, back)
+                    "coinflip" -> RealPennyCoinflipGameScreen(appViewModel, back)
                     "wheel" -> UltraWheelGameScreen(appViewModel, back)
                     "roulette" -> RealisticRouletteGameScreen(appViewModel, back)
                     "slots" -> UltraSlotsGameScreen(appViewModel, back)
