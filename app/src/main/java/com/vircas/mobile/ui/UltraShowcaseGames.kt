@@ -556,7 +556,7 @@ private fun UltraHorseTrack(race: HorseRace, result: HorseRaceResult?, progress:
         repeat(18){stripe-> val x=stripe*size.width/18f; drawRect(Color.White.copy(alpha=if(stripe%2==0).012f else .004f),Offset(x,0f),Size(size.width/18f,size.height)) }
         race.horses.indices.forEach { lane ->
             val y0=lane*laneH; if(lane%2==0) drawRect(Color.White.copy(alpha=.018f),Offset(0f,y0),Size(size.width,laneH)); drawLine(Color.White.copy(alpha=.09f),Offset(0f,y0+laneH),Offset(size.width,y0+laneH),1.3f)
-            drawContext.canvas.nativeCanvas.drawText("${lane+1}",size.width*.025f,y0+laneH*.63f,AndroidPaint().apply{color=android.graphics.Color.argb(90,255,255,255);textAlign=AndroidPaint.Align.CENTER;typeface=Typeface.DEFAULT_BOLD;textSize=laneH*.28f})
+            drawContext.canvas.nativeCanvas.drawText("${lane+1}",size.width*.025f,y0+laneH*.63f,AndroidPaint().apply{this.color=android.graphics.Color.argb(90,255,255,255);textAlign=AndroidPaint.Align.CENTER;typeface=Typeface.DEFAULT_BOLD;textSize=laneH*.28f})
         }
         repeat(4){m-> val x=startX+length*(m+1)/5f; drawLine(Color.White.copy(alpha=.045f),Offset(x,0f),Offset(x,size.height),1f) }
         drawLine(Color.White.copy(alpha=.18f),Offset(startX,0f),Offset(startX,size.height),2f)
@@ -564,11 +564,11 @@ private fun UltraHorseTrack(race: HorseRace, result: HorseRaceResult?, progress:
         race.horses.forEachIndexed { index,horse ->
             val pos=result?.finishOrder?.indexOf(horse.id)?.takeIf{it>=0}?:index; val p=if(running||result!=null)progress.coerceIn(0f,1f) else 0f
             val wave=sin(p*PI.toFloat()*4.8f+index*.86f)*(1f-p)*p*.15f; val stat=((horse.speed+horse.stamina)/200f-.60f)*sin(p*PI.toFloat())*.13f; val penalty=pos*.012f*p*p*p
-            val norm=if(p>=.999f)1f-pos*.012f else (p+wave+stat-penalty).coerceIn(0f,.99f); val x=startX+length*norm; val y=laneH*(index+.56f); val color=colors[index%colors.size]; val selected=horse.id==selectedId; val phase=p*52f+index*.71f
+            val norm=if(p>=.999f)1f-pos*.012f else (p+wave+stat-penalty).coerceIn(0f,.99f); val x=startX+length*norm; val y=laneH*(index+.56f); val horseColor=colors[index%colors.size]; val selected=horse.id==selectedId; val phase=p*52f+index*.71f
             if(selected){drawCircle(ShellGold.copy(alpha=.08f),laneH*.49f,Offset(x,y-laneH*.05f));drawLine(ShellGold.copy(alpha=.12f),Offset(startX,y),Offset(x-laneH*.25f,y),2f)}
             if(running&&p>.03f) repeat(3){dust-> val dx=laneH*(.45f+dust*.28f); val dy=sin(phase+dust)*laneH*.08f; drawCircle(Color(0xFFC9B88D).copy(alpha=.12f-dust*.025f),laneH*(.10f-dust*.018f),Offset(x-dx,y+dy)) }
-            drawRaceHorse(Offset(x,y),laneH*.31f,color,selected,phase)
-            if(result!=null&&p>=.999f) drawContext.canvas.nativeCanvas.drawText("#${pos+1}",x,y-laneH*.31f,AndroidPaint().apply{color=if(pos==0)android.graphics.Color.rgb(244,201,93) else android.graphics.Color.argb(180,255,255,255);textAlign=AndroidPaint.Align.CENTER;typeface=Typeface.DEFAULT_BOLD;textSize=laneH*.22f})
+            drawRaceHorse(Offset(x,y),laneH*.31f,horseColor,selected,phase)
+            if(result!=null&&p>=.999f) drawContext.canvas.nativeCanvas.drawText("#${pos+1}",x,y-laneH*.31f,AndroidPaint().apply{this.color=if(pos==0)android.graphics.Color.rgb(244,201,93) else android.graphics.Color.argb(180,255,255,255);textAlign=AndroidPaint.Align.CENTER;typeface=Typeface.DEFAULT_BOLD;textSize=laneH*.22f})
         }
     }
 }
