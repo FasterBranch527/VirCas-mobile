@@ -47,14 +47,17 @@ private val CrashLiveDeep = Color(0xFF16B96E)
 private val CrashRed = Color(0xFFFF4F67)
 private val CrashRedBright = Color(0xFFFFA1AE)
 private val CrashGrid = Color(0xFF93A9A1)
-private val RunnerSkin = Color(0xFFF0C8A6)
-private val RunnerSkinShade = Color(0xFFC89578)
-private val RunnerJersey = Color(0xFFF1F7F4)
-private val RunnerJerseyShade = Color(0xFF9FC7B8)
-private val RunnerShorts = Color(0xFF111A19)
-private val RunnerHair = Color(0xFF171D1C)
-private val RunnerShoe = Color(0xFF7DFFD0)
-private val RunnerOutline = Color(0xFF030806)
+
+// Friendly, faceless runner palette. The character is intentionally stylized instead of
+// trying to fake a realistic face from Canvas primitives.
+private val RunnerSuit = Color(0xFFE9FFF5)
+private val RunnerSuitShade = Color(0xFF9AC9B7)
+private val RunnerLeggings = Color(0xFF0D1714)
+private val RunnerLeggingsShade = Color(0xFF263934)
+private val RunnerHelmet = Color(0xFF111B18)
+private val RunnerVisor = Color(0xFF9EFFE0)
+private val RunnerShoe = Color(0xFF70F9C6)
+private val RunnerOutline = Color(0xFF020706)
 
 internal fun crashDisplayMultiplier(seconds: Float): Double {
     val t = seconds.coerceAtLeast(0f).toDouble()
@@ -265,14 +268,13 @@ private fun DrawScope.drawCrashAtmosphere(
         )
     }
 
-    // Small local runner glow only. No giant bubble around the graph endpoint.
     drawCircle(
         brush = Brush.radialGradient(
-            listOf(accent.copy(alpha = .075f), accent.copy(alpha = .018f), Color.Transparent),
+            listOf(accent.copy(alpha = .065f), accent.copy(alpha = .014f), Color.Transparent),
             center = geometry.end,
-            radius = size.minDimension * .075f
+            radius = size.minDimension * .065f
         ),
-        radius = size.minDimension * .075f,
+        radius = size.minDimension * .065f,
         center = geometry.end
     )
 }
@@ -330,9 +332,8 @@ private fun DrawScope.drawCrashTrail(geometry: CrashGeometry, accent: Color, cra
         style = Stroke(3.6f, cap = StrokeCap.Round)
     )
 
-    // The curve terminates at the runner's stride. Keep this tiny so it reads as contact, not a target marker.
-    drawCircle(accent.copy(alpha = .20f), radius = 8f, center = geometry.end)
-    drawCircle(hot, radius = 2.7f, center = geometry.end)
+    drawCircle(accent.copy(alpha = .17f), radius = 7f, center = geometry.end)
+    drawCircle(hot, radius = 2.5f, center = geometry.end)
 }
 
 private fun DrawScope.drawTrackParticles(
@@ -348,8 +349,8 @@ private fun DrawScope.drawTrackParticles(
         val lift = sin(index * 1.91f + elapsedSeconds * 3.1f) * 5f + phase * 9f
         val particle = geometry.end - tangent * distance + up * lift
         drawCircle(
-            accent.copy(alpha = (1f - phase) * .22f),
-            radius = 1.1f + (1f - phase) * 1.8f,
+            accent.copy(alpha = (1f - phase) * .20f),
+            radius = 1.0f + (1f - phase) * 1.6f,
             center = particle
         )
     }
@@ -361,7 +362,7 @@ private data class RunnerPose(
     val bodyUp: Offset,
     val bodyRight: Offset,
     val hip: Offset,
-    val shoulder: Offset,
+    val chest: Offset,
     val head: Offset,
     val kneeFront: Offset,
     val kneeBack: Offset,
@@ -381,33 +382,31 @@ private fun DrawScope.drawCrashRunner(
     crashed: Boolean,
     crashProgress: Float
 ) {
-    val scale = (size.minDimension / 420f).coerceIn(1.35f, 2.15f)
+    val scale = (size.minDimension / 445f).coerceIn(1.25f, 1.90f)
     val p = crashProgress.coerceIn(0f, 1f)
     val baseAngle = tangentDegrees * (PI / 180.0).toFloat()
     val baseGround = normalize(Offset(cos(baseAngle), sin(baseAngle)))
     val baseSlopeUp = normalize(Offset(baseGround.y, -baseGround.x))
 
     val fallPoint = if (crashed) {
-        point + Offset(68f * scale * p, 118f * scale * p.pow(1.55f))
+        point + Offset(62f * scale * p, 112f * scale * p.pow(1.55f))
     } else {
         point
     }
-    val tumbleRadians = if (crashed) (p * 300f) * (PI / 180.0).toFloat() else 0f
+    val tumbleRadians = if (crashed) (p * 250f) * (PI / 180.0).toFloat() else 0f
     val ground = rotateVector(baseGround, tumbleRadians)
     val slopeUp = rotateVector(baseSlopeUp, tumbleRadians)
 
-    val speed = if (running && !crashed) (9.4f + min(4.5f, elapsedSeconds * .42f)) else 0f
-    val cycle = if (running && !crashed) elapsedSeconds * speed else elapsedSeconds * 9.4f
+    val speed = if (running && !crashed) (8.7f + min(3.8f, elapsedSeconds * .34f)) else 0f
+    val cycle = if (running && !crashed) elapsedSeconds * speed else elapsedSeconds * 8.7f
     val stride = sin(cycle)
-    val bodyUpBase = normalize(
-        Offset(
-            baseSlopeUp.x * .18f,
-            -0.82f + baseSlopeUp.y * .18f
-        )
-    )
+
+    // Keep the torso visually upright. The hill affects the feet much more than the spine.
+    val upright = Offset(0f, -1f)
+    val bodyUpBase = normalize(upright * .88f + baseSlopeUp * .12f + baseGround * .055f)
     val bodyUp = rotateVector(bodyUpBase, tumbleRadians)
     val bodyRight = normalize(Offset(-bodyUp.y, bodyUp.x))
-    val maxForward = abs(stride) * 18f * scale
+    val maxForward = abs(stride) * 15f * scale
     val anchor = fallPoint - ground * maxForward
 
     val pose = makeRunnerPose(
@@ -420,34 +419,15 @@ private fun DrawScope.drawCrashRunner(
         scale = scale,
         running = running && !crashed
     )
-    val fade = if (crashed) 1f - p * .48f else 1f
+    val fade = if (crashed) 1f - p * .44f else 1f
 
-    if (running && !crashed) {
-        // Two faint body echoes, close to the runner instead of a long blur trail.
-        repeat(2) { ghost ->
-            val shift = ground * ((11f + ghost * 9f) * scale)
-            drawRunnerGhost(pose, shift, scale, .045f - ghost * .014f)
-        }
-    }
+    val shadowCenter = anchor - slopeUp * (1.3f * scale)
+    val shadowLeft = shadowCenter - ground * (16f * scale)
+    val shadowRight = shadowCenter + ground * (16f * scale)
+    drawLine(Color.Black.copy(alpha = .34f * fade), shadowLeft, shadowRight, 5.5f * scale, cap = StrokeCap.Round)
+    drawLine(CrashLive.copy(alpha = .08f * fade), shadowLeft, shadowRight, 1.8f * scale, cap = StrokeCap.Round)
 
-    drawCircle(
-        brush = Brush.radialGradient(
-            listOf(CrashLive.copy(alpha = .11f * fade), Color.Transparent),
-            center = pose.hip,
-            radius = 34f * scale
-        ),
-        radius = 34f * scale,
-        center = pose.hip
-    )
-
-    // Shadow follows the actual local slope under the athlete.
-    val shadowCenter = anchor - slopeUp * (1.5f * scale)
-    val shadowLeft = shadowCenter - ground * (17f * scale)
-    val shadowRight = shadowCenter + ground * (17f * scale)
-    drawLine(Color.Black.copy(alpha = .36f * fade), shadowLeft, shadowRight, 6f * scale, cap = StrokeCap.Round)
-    drawLine(CrashLive.copy(alpha = .10f * fade), shadowLeft, shadowRight, 2.2f * scale, cap = StrokeCap.Round)
-
-    drawDetailedRunner(pose, scale, fade, crashed)
+    drawMascotRunner(pose, scale, fade, crashed)
 
     if (running && !crashed) {
         drawFootSparks(pose, cycle, scale)
@@ -464,26 +444,26 @@ private fun makeRunnerPose(
     scale: Float,
     running: Boolean
 ): RunnerPose {
-    val stride = if (running) sin(cycle) else .28f
-    val lift = if (running) cos(cycle) else -.2f
-    val liftFront = max(0f, -lift)
-    val liftBack = max(0f, lift)
-    val bob = if (running) abs(cos(cycle * 2f)) * 1.6f * scale else 0f
+    val stride = if (running) sin(cycle) else .22f
+    val lift = if (running) cos(cycle) else -.15f
+    val frontLift = max(0f, -lift)
+    val backLift = max(0f, lift)
+    val bob = if (running) abs(cos(cycle * 2f)) * 1.05f * scale else 0f
 
-    val footFront = anchor + ground * (stride * 18f * scale) + slopeUp * (liftFront * 10f * scale)
-    val footBack = anchor - ground * (stride * 18f * scale) + slopeUp * (liftBack * 10f * scale)
-    val hip = anchor + bodyUp * (40f * scale) + slopeUp * bob
-    val shoulder = hip + bodyUp * (29f * scale) + ground * (6.5f * scale)
-    val head = shoulder + bodyUp * (16.5f * scale) + ground * (3.5f * scale)
+    val footFront = anchor + ground * (stride * 15f * scale) + slopeUp * (frontLift * 7.5f * scale)
+    val footBack = anchor - ground * (stride * 15f * scale) + slopeUp * (backLift * 7.5f * scale)
+    val hip = anchor + bodyUp * (36f * scale) + slopeUp * bob
+    val chest = hip + bodyUp * (24f * scale) + ground * (4.8f * scale)
+    val head = chest + bodyUp * (16f * scale) + ground * (2.8f * scale)
 
-    val kneeFront = lerpOffset(hip, footFront, .53f) + ground * ((5f + 5f * max(0f, stride)) * scale) + slopeUp * (4f * scale)
-    val kneeBack = lerpOffset(hip, footBack, .53f) + ground * ((4f - 5f * min(0f, stride)) * scale) + slopeUp * (3f * scale)
+    val kneeFront = lerpOffset(hip, footFront, .53f) + ground * ((4.5f + 3.5f * max(0f, stride)) * scale) + slopeUp * (3.3f * scale)
+    val kneeBack = lerpOffset(hip, footBack, .53f) + ground * ((3.8f - 3.5f * min(0f, stride)) * scale) + slopeUp * (2.7f * scale)
 
     val armSwing = -stride
-    val elbowFront = shoulder - bodyUp * (10f * scale) + ground * (armSwing * 13f * scale)
-    val handFront = elbowFront - bodyUp * (10f * scale) + ground * (armSwing * 8f * scale)
-    val elbowBack = shoulder - bodyUp * (10f * scale) - ground * (armSwing * 12f * scale)
-    val handBack = elbowBack - bodyUp * (9f * scale) - ground * (armSwing * 8f * scale)
+    val elbowFront = chest - bodyUp * (8.5f * scale) + ground * (armSwing * 10f * scale)
+    val handFront = elbowFront - bodyUp * (8.5f * scale) + ground * (armSwing * 6f * scale)
+    val elbowBack = chest - bodyUp * (8.5f * scale) - ground * (armSwing * 9.5f * scale)
+    val handBack = elbowBack - bodyUp * (8f * scale) - ground * (armSwing * 5.8f * scale)
 
     return RunnerPose(
         ground = ground,
@@ -491,7 +471,7 @@ private fun makeRunnerPose(
         bodyUp = bodyUp,
         bodyRight = bodyRight,
         hip = hip,
-        shoulder = shoulder,
+        chest = chest,
         head = head,
         kneeFront = kneeFront,
         kneeBack = kneeBack,
@@ -504,195 +484,196 @@ private fun makeRunnerPose(
     )
 }
 
-private fun DrawScope.drawRunnerGhost(pose: RunnerPose, shift: Offset, scale: Float, alpha: Float) {
-    val c = CrashLive.copy(alpha = alpha)
-    fun shifted(p: Offset) = p - shift
-    drawLine(c, shifted(pose.hip), shifted(pose.kneeBack), 7f * scale, cap = StrokeCap.Round)
-    drawLine(c, shifted(pose.kneeBack), shifted(pose.footBack), 5f * scale, cap = StrokeCap.Round)
-    drawLine(c, shifted(pose.hip), shifted(pose.kneeFront), 7f * scale, cap = StrokeCap.Round)
-    drawLine(c, shifted(pose.kneeFront), shifted(pose.footFront), 5f * scale, cap = StrokeCap.Round)
-    drawLine(c, shifted(pose.hip), shifted(pose.shoulder), 10f * scale, cap = StrokeCap.Round)
-    drawCircle(c, 6.8f * scale, shifted(pose.head))
-}
-
-private fun DrawScope.drawDetailedRunner(pose: RunnerPose, scale: Float, fade: Float, crashed: Boolean) {
-    val outline = RunnerOutline.copy(alpha = .95f * fade)
-    val skin = RunnerSkin.copy(alpha = fade)
-    val skinShade = RunnerSkinShade.copy(alpha = fade)
-    val jersey = RunnerJersey.copy(alpha = fade)
-    val jerseyShade = RunnerJerseyShade.copy(alpha = fade)
-    val shorts = RunnerShorts.copy(alpha = fade)
+private fun DrawScope.drawMascotRunner(pose: RunnerPose, scale: Float, fade: Float, crashed: Boolean) {
+    val outline = RunnerOutline.copy(alpha = .94f * fade)
+    val suit = RunnerSuit.copy(alpha = fade)
+    val suitShade = RunnerSuitShade.copy(alpha = fade)
+    val leggings = RunnerLeggings.copy(alpha = fade)
+    val leggingsShade = RunnerLeggingsShade.copy(alpha = fade)
+    val accent = (if (crashed) CrashRedBright else CrashLiveBright).copy(alpha = fade)
     val shoe = (if (crashed) CrashRedBright else RunnerShoe).copy(alpha = fade)
 
-    // Back leg and arm are darker so the side-view pose has depth.
-    drawLeg(pose, pose.kneeBack, pose.footBack, scale, outline, shorts, skinShade, .72f)
-    drawShoe(pose.footBack, pose.ground, scale, shoe.copy(alpha = .72f), outline.copy(alpha = .72f))
-    drawArm(
-        shoulder = pose.shoulder - pose.bodyRight * (1.5f * scale),
+    // Back limbs first. Full leggings/gloves remove the uncanny pseudo-skin look.
+    drawMascotLeg(pose, pose.kneeBack, pose.footBack, scale, outline.copy(alpha = .68f), leggingsShade.copy(alpha = .78f))
+    drawMascotShoe(pose.footBack, pose.ground, pose.up, scale, shoe.copy(alpha = .68f), outline.copy(alpha = .68f))
+    drawMascotArm(
+        chest = pose.chest - pose.bodyRight * (1.4f * scale),
         elbow = pose.elbowBack,
         hand = pose.handBack,
         scale = scale,
-        outline = outline.copy(alpha = .72f),
-        sleeve = jerseyShade.copy(alpha = .72f),
-        skin = skinShade.copy(alpha = .72f)
+        outline = outline.copy(alpha = .68f),
+        sleeve = suitShade.copy(alpha = .72f),
+        glove = leggingsShade.copy(alpha = .80f)
     )
 
-    // Tapered torso, mostly upright even on a steep graph. It only leans into the climb.
-    val shoulderLeft = pose.shoulder - pose.bodyRight * (7.4f * scale)
-    val shoulderRight = pose.shoulder + pose.bodyRight * (7.4f * scale)
-    val hipLeft = pose.hip - pose.bodyRight * (5.1f * scale)
-    val hipRight = pose.hip + pose.bodyRight * (5.1f * scale)
+    // Rounded athletic torso: broad shoulders, compact waist, slight forward lean.
+    val shoulderL = pose.chest - pose.bodyRight * (7.7f * scale) + pose.bodyUp * (1.0f * scale)
+    val shoulderR = pose.chest + pose.bodyRight * (7.7f * scale) - pose.bodyUp * (.2f * scale)
+    val waistL = pose.hip - pose.bodyRight * (4.8f * scale)
+    val waistR = pose.hip + pose.bodyRight * (4.8f * scale)
     val torso = Path().apply {
-        moveTo(shoulderLeft.x, shoulderLeft.y)
-        lineTo(shoulderRight.x, shoulderRight.y)
-        lineTo(hipRight.x, hipRight.y)
-        lineTo(hipLeft.x, hipLeft.y)
+        moveTo(shoulderL.x, shoulderL.y)
+        quadraticTo(
+            pose.chest.x - pose.bodyRight.x * (9.2f * scale),
+            pose.chest.y - pose.bodyRight.y * (9.2f * scale),
+            waistL.x,
+            waistL.y
+        )
+        quadraticTo(pose.hip.x, pose.hip.y + 1.5f * scale, waistR.x, waistR.y)
+        quadraticTo(
+            pose.chest.x + pose.bodyRight.x * (9.2f * scale),
+            pose.chest.y + pose.bodyRight.y * (9.2f * scale),
+            shoulderR.x,
+            shoulderR.y
+        )
         close()
     }
     drawPath(torso, outline)
 
-    val inset = 1.5f * scale
+    val inset = 1.35f * scale
+    val innerL = shoulderL + pose.bodyRight * inset - pose.bodyUp * (.1f * scale)
+    val innerR = shoulderR - pose.bodyRight * inset
+    val innerWaistL = waistL + pose.bodyRight * inset
+    val innerWaistR = waistR - pose.bodyRight * inset
     val torsoInner = Path().apply {
-        val a = shoulderLeft + pose.bodyRight * inset - pose.bodyUp * (.4f * scale)
-        val b = shoulderRight - pose.bodyRight * inset
-        val c = hipRight - pose.bodyRight * inset
-        val d = hipLeft + pose.bodyRight * inset
+        moveTo(innerL.x, innerL.y)
+        quadraticTo(
+            pose.chest.x - pose.bodyRight.x * (7.4f * scale),
+            pose.chest.y - pose.bodyRight.y * (7.4f * scale),
+            innerWaistL.x,
+            innerWaistL.y
+        )
+        quadraticTo(pose.hip.x, pose.hip.y, innerWaistR.x, innerWaistR.y)
+        quadraticTo(
+            pose.chest.x + pose.bodyRight.x * (7.4f * scale),
+            pose.chest.y + pose.bodyRight.y * (7.4f * scale),
+            innerR.x,
+            innerR.y
+        )
+        close()
+    }
+    drawPath(
+        torsoInner,
+        brush = Brush.linearGradient(listOf(suit, suitShade), start = shoulderL, end = waistR)
+    )
+
+    // Compact dark running shorts over leggings.
+    val shortsTopL = pose.hip - pose.bodyRight * (5.4f * scale)
+    val shortsTopR = pose.hip + pose.bodyRight * (5.4f * scale)
+    val shortsLow = pose.hip - pose.bodyUp * (6.2f * scale)
+    val shorts = Path().apply {
+        moveTo(shortsTopL.x, shortsTopL.y)
+        lineTo(shortsTopR.x, shortsTopR.y)
+        lineTo((shortsLow + pose.bodyRight * (4.4f * scale)).x, (shortsLow + pose.bodyRight * (4.4f * scale)).y)
+        lineTo((shortsLow - pose.bodyRight * (4.4f * scale)).x, (shortsLow - pose.bodyRight * (4.4f * scale)).y)
+        close()
+    }
+    drawPath(shorts, outline)
+    val shortsInner = Path().apply {
+        val a = shortsTopL + pose.bodyRight * (1.2f * scale)
+        val b = shortsTopR - pose.bodyRight * (1.2f * scale)
+        val c = shortsLow + pose.bodyRight * (3.2f * scale)
+        val d = shortsLow - pose.bodyRight * (3.2f * scale)
         moveTo(a.x, a.y)
         lineTo(b.x, b.y)
         lineTo(c.x, c.y)
         lineTo(d.x, d.y)
         close()
     }
-    drawPath(
-        torsoInner,
-        brush = Brush.linearGradient(
-            listOf(jersey, jerseyShade),
-            start = shoulderLeft,
-            end = hipRight
-        )
-    )
+    drawPath(shortsInner, leggings)
 
-    val pelvis = Path().apply {
-        val topL = pose.hip - pose.bodyRight * (5.8f * scale)
-        val topR = pose.hip + pose.bodyRight * (5.8f * scale)
-        val lowR = pose.hip - pose.bodyUp * (7.0f * scale) + pose.bodyRight * (5.0f * scale)
-        val lowL = pose.hip - pose.bodyUp * (7.0f * scale) - pose.bodyRight * (5.0f * scale)
-        moveTo(topL.x, topL.y)
-        lineTo(topR.x, topR.y)
-        lineTo(lowR.x, lowR.y)
-        lineTo(lowL.x, lowL.y)
-        close()
-    }
-    drawPath(pelvis, outline)
-    val pelvisInner = Path().apply {
-        val topL = pose.hip - pose.bodyRight * (4.4f * scale)
-        val topR = pose.hip + pose.bodyRight * (4.4f * scale)
-        val lowR = pose.hip - pose.bodyUp * (5.6f * scale) + pose.bodyRight * (3.7f * scale)
-        val lowL = pose.hip - pose.bodyUp * (5.6f * scale) - pose.bodyRight * (3.7f * scale)
-        moveTo(topL.x, topL.y)
-        lineTo(topR.x, topR.y)
-        lineTo(lowR.x, lowR.y)
-        lineTo(lowL.x, lowL.y)
-        close()
-    }
-    drawPath(pelvisInner, shorts)
+    drawMascotLeg(pose, pose.kneeFront, pose.footFront, scale, outline, leggings)
+    drawMascotShoe(pose.footFront, pose.ground, pose.up, scale, shoe, outline)
 
-    drawLeg(pose, pose.kneeFront, pose.footFront, scale, outline, shorts, skin, 1f)
-    drawShoe(pose.footFront, pose.ground, scale, shoe, outline)
-
-    drawArm(
-        shoulder = pose.shoulder + pose.bodyRight * (1.8f * scale),
+    drawMascotArm(
+        chest = pose.chest + pose.bodyRight * (1.6f * scale),
         elbow = pose.elbowFront,
         hand = pose.handFront,
         scale = scale,
         outline = outline,
-        sleeve = jersey,
-        skin = skin
+        sleeve = suit,
+        glove = leggings
     )
 
-    // Neck and head.
-    val neckBase = pose.shoulder + pose.bodyUp * (3.5f * scale) + pose.ground * (2f * scale)
-    val neckTop = pose.head - pose.bodyUp * (7.8f * scale)
-    drawLine(outline, neckBase, neckTop, 6.4f * scale, cap = StrokeCap.Round)
-    drawLine(skin, neckBase, neckTop, 4.1f * scale, cap = StrokeCap.Round)
-    drawCircle(outline, 8.6f * scale, pose.head)
-    drawCircle(skin, 7.0f * scale, pose.head)
+    // Small collar/neck bridge.
+    val neckBottom = pose.chest + pose.bodyUp * (4.2f * scale) + pose.ground * (1.8f * scale)
+    val neckTop = pose.head - pose.bodyUp * (7.1f * scale)
+    drawLine(outline, neckBottom, neckTop, 6.0f * scale, cap = StrokeCap.Round)
+    drawLine(leggingsShade, neckBottom, neckTop, 3.8f * scale, cap = StrokeCap.Round)
 
-    val hairCenter = pose.head + pose.bodyUp * (2.6f * scale) - pose.ground * (1.5f * scale)
-    drawCircle(RunnerHair.copy(alpha = fade), 6.3f * scale, hairCenter)
-    drawCircle(skin, 5.7f * scale, pose.head + pose.ground * (1.7f * scale) - pose.bodyUp * (.6f * scale))
-    drawCircle(Color.White.copy(alpha = .55f * fade), 1.0f * scale, pose.head + pose.ground * (4.0f * scale) + pose.bodyUp * (.4f * scale))
+    // Helmet instead of a fake face. A single luminous visor reads much cleaner at this size.
+    drawCircle(outline, 8.1f * scale, pose.head)
+    drawCircle(RunnerHelmet.copy(alpha = fade), 6.8f * scale, pose.head)
+    val visorStart = pose.head - pose.ground * (1.2f * scale) + pose.bodyUp * (1.1f * scale)
+    val visorEnd = pose.head + pose.ground * (5.5f * scale) + pose.bodyUp * (.2f * scale)
+    drawLine(RunnerVisor.copy(alpha = .88f * fade), visorStart, visorEnd, 2.5f * scale, cap = StrokeCap.Round)
+    drawLine(Color.White.copy(alpha = .34f * fade), visorStart + pose.bodyUp * (.7f * scale), visorEnd - pose.ground * (1.8f * scale), 0.8f * scale, cap = StrokeCap.Round)
 
-    // Neon stripe and bib make the athlete readable at a glance.
-    drawLine(
-        color = (if (crashed) CrashRedBright else CrashLiveBright).copy(alpha = .85f * fade),
-        start = pose.shoulder - pose.bodyRight * (4.8f * scale),
-        end = pose.hip - pose.bodyRight * (3.4f * scale),
-        strokeWidth = 1.7f * scale,
-        cap = StrokeCap.Round
-    )
+    // Clean neon identity stripe on the suit.
+    val stripeStart = pose.chest - pose.bodyRight * (4.8f * scale) + pose.bodyUp * (1.4f * scale)
+    val stripeEnd = pose.hip - pose.bodyRight * (3.1f * scale) + pose.bodyUp * (1.0f * scale)
+    drawLine(accent.copy(alpha = .82f), stripeStart, stripeEnd, 1.7f * scale, cap = StrokeCap.Round)
+
+    // Tiny chest badge, no facial detail.
     drawCircle(
-        color = CrashLiveDeep.copy(alpha = .90f * fade),
-        radius = 2.6f * scale,
-        center = lerpOffset(pose.shoulder, pose.hip, .40f)
+        color = (if (crashed) CrashRed else CrashLiveDeep).copy(alpha = .88f * fade),
+        radius = 2.15f * scale,
+        center = lerpOffset(pose.chest, pose.hip, .34f) + pose.bodyRight * (1.2f * scale)
     )
 }
 
-private fun DrawScope.drawLeg(
+private fun DrawScope.drawMascotLeg(
     pose: RunnerPose,
     knee: Offset,
     foot: Offset,
     scale: Float,
     outline: Color,
-    shorts: Color,
-    skin: Color,
-    depth: Float
+    legColor: Color
 ) {
-    val upperEnd = lerpOffset(pose.hip, knee, .40f)
-    val o = outline.copy(alpha = outline.alpha * depth)
-    val s = shorts.copy(alpha = shorts.alpha * depth)
-    val k = skin.copy(alpha = skin.alpha * depth)
-
-    drawLine(o, pose.hip, upperEnd, 10.5f * scale, cap = StrokeCap.Round)
-    drawLine(s, pose.hip, upperEnd, 7.0f * scale, cap = StrokeCap.Round)
-    drawLine(o, upperEnd, knee, 8.2f * scale, cap = StrokeCap.Round)
-    drawLine(k, upperEnd, knee, 5.2f * scale, cap = StrokeCap.Round)
-    drawCircle(o, 4.1f * scale, knee)
-    drawCircle(k, 2.8f * scale, knee)
-    drawLine(o, knee, foot - pose.up * (2.2f * scale), 7.4f * scale, cap = StrokeCap.Round)
-    drawLine(k, knee, foot - pose.up * (2.2f * scale), 4.5f * scale, cap = StrokeCap.Round)
+    val thighEnd = lerpOffset(pose.hip, knee, .44f)
+    drawLine(outline, pose.hip, thighEnd, 9.6f * scale, cap = StrokeCap.Round)
+    drawLine(legColor, pose.hip, thighEnd, 6.2f * scale, cap = StrokeCap.Round)
+    drawLine(outline, thighEnd, knee, 7.7f * scale, cap = StrokeCap.Round)
+    drawLine(legColor, thighEnd, knee, 4.8f * scale, cap = StrokeCap.Round)
+    drawCircle(outline, 3.7f * scale, knee)
+    drawCircle(legColor, 2.4f * scale, knee)
+    drawLine(outline, knee, foot - pose.up * (2.0f * scale), 6.8f * scale, cap = StrokeCap.Round)
+    drawLine(legColor, knee, foot - pose.up * (2.0f * scale), 4.1f * scale, cap = StrokeCap.Round)
 }
 
-private fun DrawScope.drawArm(
-    shoulder: Offset,
+private fun DrawScope.drawMascotArm(
+    chest: Offset,
     elbow: Offset,
     hand: Offset,
     scale: Float,
     outline: Color,
     sleeve: Color,
-    skin: Color
+    glove: Color
 ) {
-    val sleeveEnd = lerpOffset(shoulder, elbow, .46f)
-    drawLine(outline, shoulder, sleeveEnd, 8.0f * scale, cap = StrokeCap.Round)
-    drawLine(sleeve, shoulder, sleeveEnd, 5.3f * scale, cap = StrokeCap.Round)
-    drawLine(outline, sleeveEnd, elbow, 6.5f * scale, cap = StrokeCap.Round)
-    drawLine(skin, sleeveEnd, elbow, 4.2f * scale, cap = StrokeCap.Round)
-    drawLine(outline, elbow, hand, 6.0f * scale, cap = StrokeCap.Round)
-    drawLine(skin, elbow, hand, 3.9f * scale, cap = StrokeCap.Round)
-    drawCircle(skin, 2.7f * scale, hand)
+    val sleeveEnd = lerpOffset(chest, elbow, .62f)
+    drawLine(outline, chest, sleeveEnd, 7.4f * scale, cap = StrokeCap.Round)
+    drawLine(sleeve, chest, sleeveEnd, 4.8f * scale, cap = StrokeCap.Round)
+    drawLine(outline, sleeveEnd, elbow, 6.0f * scale, cap = StrokeCap.Round)
+    drawLine(glove, sleeveEnd, elbow, 3.6f * scale, cap = StrokeCap.Round)
+    drawLine(outline, elbow, hand, 5.6f * scale, cap = StrokeCap.Round)
+    drawLine(glove, elbow, hand, 3.4f * scale, cap = StrokeCap.Round)
+    drawCircle(outline, 2.8f * scale, hand)
+    drawCircle(glove, 1.9f * scale, hand)
 }
 
-private fun DrawScope.drawShoe(
+private fun DrawScope.drawMascotShoe(
     foot: Offset,
     ground: Offset,
+    up: Offset,
     scale: Float,
     color: Color,
     outline: Color
 ) {
-    val heel = foot - ground * (3.5f * scale)
-    val toe = foot + ground * (9.5f * scale)
-    drawLine(outline, heel, toe, 6.2f * scale, cap = StrokeCap.Round)
-    drawLine(color, heel + Offset(0f, -0.5f * scale), toe, 3.5f * scale, cap = StrokeCap.Round)
+    val heel = foot - ground * (3.0f * scale) + up * (.5f * scale)
+    val toe = foot + ground * (8.5f * scale)
+    drawLine(outline, heel, toe, 6.0f * scale, cap = StrokeCap.Round)
+    drawLine(color, heel + up * (.4f * scale), toe, 3.4f * scale, cap = StrokeCap.Round)
+    drawLine(Color.White.copy(alpha = .34f * color.alpha), foot, toe - ground * (1.3f * scale), 0.9f * scale, cap = StrokeCap.Round)
 }
 
 private fun DrawScope.drawFootSparks(pose: RunnerPose, cycle: Float, scale: Float) {
@@ -700,11 +681,11 @@ private fun DrawScope.drawFootSparks(pose: RunnerPose, cycle: Float, scale: Floa
     val contact = if (c >= 0f) pose.footFront else pose.footBack
     val intensity = abs(c).coerceIn(0f, 1f)
     repeat(4) { index ->
-        val back = pose.ground * ((4f + index * 4.5f) * scale)
-        val lift = pose.up * ((index % 2 + 1) * 2.2f * scale)
+        val back = pose.ground * ((4f + index * 4.2f) * scale)
+        val lift = pose.up * ((index % 2 + 1) * 1.9f * scale)
         drawCircle(
-            CrashLiveBright.copy(alpha = (.28f - index * .045f) * intensity),
-            radius = (1.5f + index * .25f) * scale,
+            CrashLiveBright.copy(alpha = (.24f - index * .038f) * intensity),
+            radius = (1.2f + index * .20f) * scale,
             center = contact - back + lift
         )
     }
