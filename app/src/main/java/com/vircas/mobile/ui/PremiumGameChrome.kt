@@ -254,10 +254,14 @@ internal fun PremiumMessageCard(
             Surface(shape = CircleShape, color = border.copy(alpha = 0.65f)) {
                 Box(Modifier.padding(3.dp))
             }
-            Crossfade(targetState = text, animationSpec = tween(180), label = "message-crossfade") { current ->
+            Crossfade(
+                targetState = text,
+                modifier = Modifier.weight(1f),
+                animationSpec = tween(180),
+                label = "message-crossfade"
+            ) { current ->
                 Text(
                     current,
-                    Modifier.weight(1f),
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.78f),
