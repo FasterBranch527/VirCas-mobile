@@ -1,0 +1,10 @@
+Penny (Coin)
+Author: Anthony Yanez / Yanez Designs
+Original source: https://sketchfab.com/models/297daf2b48f24b228db4a793e6156a18
+License: Creative Commons Attribution 4.0 International (CC BY 4.0)
+License URL: https://creativecommons.org/licenses/by/4.0/
+
+VirCas bundles the public glTF export from:
+https://github.com/Ryanholly3/virGeo/tree/1b1768875a3c83cf0b10bf07c430f85c35b3e0dc/js/res/penny_coin
+
+The model is used as the visual coin in the virtual Coin Flip game. The original model's glTF metadata identifies Anthony Yanez as the author and CC BY 4.0 as the license.
