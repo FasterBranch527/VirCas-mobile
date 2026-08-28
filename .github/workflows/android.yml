@@ -20,9 +20,9 @@ jobs:
           gradle-version: '8.11.1'
       - name: Unit tests
         run: gradle testDebugUnitTest --stacktrace
-      - name: Assemble debug APK
-        run: gradle assembleDebug --stacktrace
+      - name: Assemble signed release APK
+        run: gradle assembleRelease --stacktrace
       - uses: actions/upload-artifact@v4
         with:
-          name: vircas-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: vircas-release-apk
+          path: app/build/outputs/apk/release/app-release.apk
