@@ -114,9 +114,9 @@ private fun VirCasNavigation(appViewModel: AppViewModel) {
                 when (gameId) {
                     "dice" -> PremiumDiceGameScreen(appViewModel, back)
                     "coinflip" -> PremiumCoinflipGameScreen(appViewModel, back)
-                    "wheel" -> PremiumWheelGameScreen(appViewModel, back)
+                    "wheel" -> UltraWheelGameScreen(appViewModel, back)
                     "roulette" -> RealisticRouletteGameScreen(appViewModel, back)
-                    "slots" -> PremiumSlotsGameScreen(appViewModel, back)
+                    "slots" -> UltraSlotsGameScreen(appViewModel, back)
                     "plinko" -> PremiumPlinkoGameScreen(appViewModel, back)
                     "mines" -> PremiumMinesGameScreen(appViewModel, back)
                     "crash" -> CinematicCrashGameScreen(appViewModel, back)
@@ -124,7 +124,7 @@ private fun VirCasNavigation(appViewModel: AppViewModel) {
                     "hilo" -> PremiumHiLoGameScreen(appViewModel, back)
                     "towers" -> PremiumTowersGameScreen(appViewModel, back)
                     "ladder" -> PremiumLadderGameScreen(appViewModel, back)
-                    "horse" -> PremiumHorseRacingGameScreen(appViewModel, back)
+                    "horse" -> UltraHorseRacingGameScreen(appViewModel, back)
                     else -> GamePlayScreen(gameId = gameId, viewModel = appViewModel, onBack = back)
                 }
             }
