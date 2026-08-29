@@ -6,9 +6,6 @@ on:
   pull_request:
     branches: [ main ]
 
-permissions:
-  contents: write
-
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -21,36 +18,6 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
-      - name: Bundle CC BY Lincoln penny model
-        shell: bash
-        run: |
-          set -euo pipefail
-          MODEL_DIR="app/src/main/assets/models/penny"
-          BASE="https://raw.githubusercontent.com/Ryanholly3/virGeo/1b1768875a3c83cf0b10bf07c430f85c35b3e0dc/js/res/penny_coin"
-          mkdir -p "$MODEL_DIR/textures"
-          curl -fsSL "$BASE/scene.gltf" -o "$MODEL_DIR/scene.gltf"
-          curl -fsSL "$BASE/scene.bin" -o "$MODEL_DIR/scene.bin"
-          curl -fsSL "$BASE/textures/01_-_Default_baseColor.jpeg" -o "$MODEL_DIR/textures/01_-_Default_baseColor.jpeg"
-          curl -fsSL "$BASE/textures/01_-_Default_normal.png" -o "$MODEL_DIR/textures/01_-_Default_normal.png"
-          curl -fsSL "$BASE/textures/02_-_Default_baseColor.jpeg" -o "$MODEL_DIR/textures/02_-_Default_baseColor.jpeg"
-          curl -fsSL "$BASE/textures/02_-_Default_normal.png" -o "$MODEL_DIR/textures/02_-_Default_normal.png"
-          curl -fsSL "$BASE/textures/03_-_Default_baseColor.jpeg" -o "$MODEL_DIR/textures/03_-_Default_baseColor.jpeg"
-          test -s "$MODEL_DIR/scene.gltf"
-          test -s "$MODEL_DIR/scene.bin"
-      - name: Commit vendored penny model
-        if: github.event_name == 'push'
-        shell: bash
-        run: |
-          set -euo pipefail
-          git add app/src/main/assets/models/penny
-          if git diff --cached --quiet; then
-            echo "Penny assets already vendored."
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "assets: vendor Lincoln penny model [skip ci]"
-          git push
       - name: Unit tests
         run: gradle testDebugUnitTest --stacktrace
       - name: Assemble signed release APK
