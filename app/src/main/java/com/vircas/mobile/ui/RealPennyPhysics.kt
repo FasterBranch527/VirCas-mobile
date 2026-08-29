@@ -34,7 +34,7 @@ internal data class RealPennyMotion(
         if (frames.isEmpty()) return IDLE_FRAME
         if (frames.size == 1) return frames.first()
 
-        val scaled = progress.coerceIn(0f, 1f) * (frames.lastIndex)
+        val scaled = progress.coerceIn(0f, 1f) * frames.lastIndex
         val lo = floor(scaled).toInt().coerceIn(0, frames.lastIndex)
         val hi = (lo + 1).coerceAtMost(frames.lastIndex)
         val t = scaled - lo
@@ -44,9 +44,9 @@ internal data class RealPennyMotion(
             x = lerpMotion(a.x, b.x, t),
             y = lerpMotion(a.y, b.y, t),
             z = lerpMotion(a.z, b.z, t),
-            rotX = lerpAngle(a.rotX, b.rotX, t),
-            rotY = lerpAngle(a.rotY, b.rotY, t),
-            rotZ = lerpAngle(a.rotZ, b.rotZ, t),
+            rotX = lerpMotion(a.rotX, b.rotX, t),
+            rotY = lerpMotion(a.rotY, b.rotY, t),
+            rotZ = lerpMotion(a.rotZ, b.rotZ, t),
             grounded = if (t < .5f) a.grounded else b.grounded
         )
     }
@@ -76,8 +76,6 @@ internal fun randomRealPennyMotion(resultSide: CoinflipEngine.Side): RealPennyMo
         startX = randomRange(-.13f, .13f),
         velocityX = randomRange(-1.32f, 1.32f),
         velocityY = randomRange(4.05f, 5.20f),
-        // Positive Z points toward the fixed camera. A wide range means some tosses barely reach
-        // the near edge while others hit it hard and rebound before settling.
         velocityZ = randomRange(1.78f, 4.55f),
         angularVelocityX = randomSignedRange(1_500f, 2_250f),
         angularVelocityY = randomRange(-330f, 330f),
@@ -126,7 +124,6 @@ internal fun simulateRealPennyMotion(
         ry += wy * PENNY_DT
         rz += wz * PENNY_DT
 
-        // Mild air drag. Do not steer toward any target.
         vx *= .9991f
         vz *= .9991f
         wx *= .9990f
@@ -156,7 +153,6 @@ internal fun simulateRealPennyMotion(
         if (y < PENNY_FLOOR_Y) {
             y = PENNY_FLOOR_Y
             if (abs(vy) > .36f) {
-                // Real bounce. Tangential speed and spin are reduced by contact friction.
                 vy = -vy * restitution
                 vx *= floorFriction
                 vz *= floorFriction
@@ -164,7 +160,6 @@ internal fun simulateRealPennyMotion(
                 wy *= .79f
                 wz *= .79f
             } else {
-                // Sliding/rolling settle. This is what produces the final coordinate.
                 vy = 0f
                 vx *= .915f
                 vz *= .915f
@@ -177,7 +172,8 @@ internal fun simulateRealPennyMotion(
         }
     }
 
-    // Only orientation knows the fair result. Translation above is never altered here.
+    // Only the final orientation knows the fair game result. The entire x/y/z trajectory above
+    // is untouched, so changing HEADS to TAILS cannot move the landing location.
     val settleStart = (raw.lastIndex * .77f).toInt()
     val rawFinalX = raw.last().rotX
     val faceBase = 90f + if (resultSide == CoinflipEngine.Side.HEADS) 0f else 180f
@@ -193,8 +189,6 @@ internal fun simulateRealPennyMotion(
             val s = smoothStepMotion(u)
             frame.copy(
                 rotX = lerpMotion(frame.rotX, targetX, s),
-                // A penny finally lies flat. Keep its arbitrary in-plane yaw so repeated tosses
-                // do not all rest with the artwork pointing the same direction.
                 rotY = lerpMotion(frame.rotY, 0f, s),
                 rotZ = lerpMotion(frame.rotZ, finalYaw, s)
             )
@@ -213,7 +207,6 @@ private fun randomSignedRange(minMagnitude: Float, maxMagnitude: Float): Float {
 }
 
 private fun lerpMotion(a: Float, b: Float, t: Float): Float = a + (b - a) * t
-private fun lerpAngle(a: Float, b: Float, t: Float): Float = a + (b - a) * t
 private fun smoothStepMotion(t: Float): Float {
     val x = t.coerceIn(0f, 1f)
     return x * x * (3f - 2f * x)
@@ -238,7 +231,6 @@ private const val PENNY_MIN_Z = -1.25f
 private const val PENNY_MAX_Z = 1.15f
 private const val PENNY_GRAVITY = 9.8f
 private const val PENNY_HZ = 120
-private const val PENNY_MOTION_SECONDS = 2.55f
 private const val PENNY_MOTION_DURATION_MS = 2550
-private const val PENNY_FRAME_COUNT = (PENNY_HZ * PENNY_MOTION_SECONDS).toInt() + 1
+private const val PENNY_FRAME_COUNT = 307
 private const val PENNY_DT = 1f / PENNY_HZ
