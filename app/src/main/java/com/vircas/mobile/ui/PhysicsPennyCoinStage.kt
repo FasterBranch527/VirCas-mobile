@@ -12,6 +12,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -25,6 +26,7 @@ import com.vircas.mobile.game.engines.CoinflipEngine
 import io.github.sceneview.Scene
 import io.github.sceneview.math.Position
 import io.github.sceneview.math.Rotation
+import io.github.sceneview.math.Scale
 import io.github.sceneview.node.ModelNode
 import io.github.sceneview.rememberCameraNode
 import io.github.sceneview.rememberEngine
@@ -38,10 +40,66 @@ private val PhysicsPennyRed = Color(0xFFFF5E72)
 private val PhysicsPennyCopper = Color(0xFFD68A50)
 private val PhysicsPennyPanel = Color(0xFF06100C)
 
+internal data class PennyPresentationPose(
+    val x: Float,
+    val y: Float,
+    val z: Float,
+    val scaleMultiplier: Float
+)
+
+/**
+ * Visual camera-rush envelope. This affects rendering only: the rigid-body simulation and its
+ * random landing coordinate stay untouched. The penny accelerates toward the player, peaks close
+ * to the camera, then blends back onto the real simulated trajectory before the landing phase.
+ */
+internal fun pennyCameraRush(progress: Float): Float {
+    val p = progress.coerceIn(0f, 1f)
+    return when {
+        p <= .07f -> 0f
+        p < .34f -> smoothCameraRush((p - .07f) / .27f)
+        p < .64f -> 1f - smoothCameraRush((p - .34f) / .30f)
+        else -> 0f
+    }
+}
+
+internal fun pennyPresentationPose(
+    physical: RealPennyMotionFrame,
+    progress: Float,
+    flipping: Boolean
+): PennyPresentationPose {
+    if (!flipping) {
+        return PennyPresentationPose(
+            x = physical.x,
+            y = physical.y,
+            z = physical.z,
+            scaleMultiplier = 1f
+        )
+    }
+
+    val rush = pennyCameraRush(progress)
+    return PennyPresentationPose(
+        // Pull the coin toward the optical center while it is closest to the player so even wide
+        // random throws still read as "thrown at you", not as a sideways table hop.
+        x = physical.x * (1f - .55f * rush),
+        y = physical.y + .08f * rush,
+        // Z points toward the viewer in SceneView/Filament. This is deliberately a visual offset;
+        // the simulated body underneath continues untouched and determines the eventual landing.
+        z = physical.z + 2.45f * rush,
+        // Perspective already makes the penny larger. Add an explicit punch so the throw is
+        // unmistakable even on small/flat displays.
+        scaleMultiplier = 1f + .90f * rush
+    )
+}
+
+private fun smoothCameraRush(value: Float): Float {
+    val x = value.coerceIn(0f, 1f)
+    return x * x * (3f - 2f * x)
+}
+
 /**
  * SceneView/Filament stage using Anthony Yanez's internet-sourced Lincoln penny glTF.
- * Position comes exclusively from RealPennyPhysics fixed-step simulation. There is no final
- * landing coordinate passed to this composable.
+ * The final landing position comes exclusively from RealPennyPhysics. A short presentation-only
+ * camera rush makes the throw come at the player without changing where the physical toss lands.
  */
 @Composable
 internal fun PhysicsPennyCoinStage(
@@ -62,14 +120,15 @@ internal fun PhysicsPennyCoinStage(
             modelInstance = modelLoader.createModelInstance(
                 assetFileLocation = "models/penny/scene.gltf"
             ),
-            // Keep the imported penny at a constant 3D size. Apparent growth while it comes at
-            // the user is camera perspective, never Compose scale animation.
-            scaleToUnits = .96f
+            scaleToUnits = .90f
         ).apply {
             isTouchable = false
             isEditable = false
         }
     }
+    // scaleToUnits computes the model-specific base scale once. Keep it so the camera-rush scale
+    // can be applied as a multiplier instead of replacing the imported model's fitted scale.
+    val fittedCoinScale = remember(coinNode) { coinNode.scale }
 
     val cameraNode = rememberCameraNode(engine) {
         position = Position(x = 0f, y = 1.68f, z = 5.05f)
@@ -89,6 +148,8 @@ internal fun PhysicsPennyCoinStage(
     } else {
         motion.sample(progress)
     }
+    val presentation = pennyPresentationPose(pose, progress, flipping)
+    val rush = if (flipping) pennyCameraRush(progress) else 0f
 
     Box(
         modifier = modifier.background(
@@ -117,11 +178,21 @@ internal fun PhysicsPennyCoinStage(
             onGestureListener = null,
             onTouchEvent = { _, _ -> false },
             onFrame = {
-                coinNode.position = Position(pose.x, pose.y, pose.z)
+                coinNode.position = Position(
+                    presentation.x,
+                    presentation.y,
+                    presentation.z
+                )
                 coinNode.rotation = Rotation(
                     x = pose.rotX,
                     y = pose.rotY,
                     z = pose.rotZ
+                )
+                val scale = presentation.scaleMultiplier
+                coinNode.scale = Scale(
+                    fittedCoinScale.x * scale,
+                    fittedCoinScale.y * scale,
+                    fittedCoinScale.z * scale
                 )
                 cameraNode.lookAt(Position(x = 0f, y = -.58f, z = -.02f))
             }
@@ -153,7 +224,7 @@ internal fun PhysicsPennyCoinStage(
             } else {
                 Text(
                     when {
-                        flipping && progress < .42f -> "THROWN AT CAMERA"
+                        flipping && rush > .18f -> "TOSSED AT YOU"
                         flipping && pose.y > PENNY_FLOOR_Y + .12f -> "FREE FLIGHT"
                         flipping -> "BOUNCE + FRICTION"
                         else -> "REAL LINCOLN CENT · 50 / 50 · 1.98x"
@@ -247,7 +318,8 @@ private fun PhysicsPennyTableBackdrop(
             )
         }
 
-        // Shadow follows the simulated body. It does not reveal or encode a future landing point.
+        // Shadow stays bound to the real simulated body. The presentation rush never alters the
+        // random physical landing coordinate underneath it.
         if (flipping || pose.grounded) {
             val xNorm = (pose.x / 1.45f).coerceIn(-1f, 1f)
             val zNorm = ((pose.z + 1.25f) / 2.40f).coerceIn(0f, 1f)
