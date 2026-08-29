@@ -22,7 +22,7 @@ if (!stableDevKeystore.exists()) {
     )
 }
 
-private data class PennyAsset(
+data class PennyAsset(
     val relativePath: String,
     val gitBlobSha: String
 )
