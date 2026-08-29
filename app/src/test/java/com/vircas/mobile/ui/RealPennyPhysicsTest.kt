@@ -59,6 +59,30 @@ class RealPennyPhysicsTest {
     }
 
     @Test
+    fun presentationRushThrowsCoinAtPlayerAndMakesItLarger() {
+        val physical = RealPennyMotionFrame(
+            x = .90f,
+            y = .42f,
+            z = .35f,
+            rotX = 720f,
+            rotY = 22f,
+            rotZ = 110f,
+            grounded = false
+        )
+
+        val peak = pennyPresentationPose(physical, .34f, true)
+        assertTrue("camera rush did not move penny close enough", peak.z - physical.z > 2.2f)
+        assertTrue("camera rush did not visibly enlarge penny", peak.scaleMultiplier > 1.8f)
+        assertTrue("camera rush should pull wide throws toward frame center", kotlin.math.abs(peak.x) < kotlin.math.abs(physical.x))
+
+        val settled = pennyPresentationPose(physical, .64f, true)
+        assertEquals("presentation must return to physical x before landing", physical.x, settled.x, 0f)
+        assertEquals("presentation must return to physical y before landing", physical.y, settled.y, 0f)
+        assertEquals("presentation must return to physical z before landing", physical.z, settled.z, 0f)
+        assertEquals("presentation scale must return to fitted model size", 1f, settled.scaleMultiplier, 0f)
+    }
+
+    @Test
     fun simulatedBodyNeverEscapesTheCollisionEnvelope() {
         val motion = simulateRealPennyMotion(referenceImpulse, CoinflipEngine.Side.TAILS)
 
