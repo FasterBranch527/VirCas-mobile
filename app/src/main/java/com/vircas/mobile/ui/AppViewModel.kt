@@ -341,7 +341,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun setDarkMode(value: Boolean) = viewModelScope.launch { container.settingsRepository.setDarkMode(value) }
     fun setSecureRng(value: Boolean) = viewModelScope.launch { container.settingsRepository.setSecureRng(value) }
     fun setDebugSeed(value: Long) = viewModelScope.launch { container.settingsRepository.setDebugSeed(value) }
-    fun setDeveloperDiagnostics(value: Boolean) = viewModelScope.launch.launch { container.settingsRepository.setDeveloperDiagnostics(value) }
+    fun setDeveloperDiagnostics(value: Boolean) = viewModelScope.launch { container.settingsRepository.setDeveloperDiagnostics(value) }
     fun setClientSeed(value: String) = viewModelScope.launch { container.settingsRepository.setClientSeed(value) }
 
     fun resetLocalAccount(): Job {
