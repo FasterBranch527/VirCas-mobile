@@ -20,13 +20,12 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,59 +46,67 @@ private enum class FullBlackjackPhase { READY, DEALING, PLAYER_TURN, DEALER_TURN
 @Composable
 fun FullBlackjackGameScreen(viewModel: AppViewModel, onBack: () -> Unit) {
     val balance by viewModel.balance.collectAsState()
-    val scope = rememberCoroutineScope()
+    val scope = viewModel.roundTaskScope("blackjack")
 
-    var stakeText by remember { mutableStateOf("1000") }
-    var baseStake by remember { mutableLongStateOf(1_000L) }
-    var committedStake by remember { mutableLongStateOf(1_000L) }
-    var wager by remember { mutableStateOf<ActiveWager?>(null) }
-    var engine by remember { mutableStateOf<BlackjackTableEngine?>(null) }
-    var round by remember { mutableStateOf<BlackjackTableRound?>(null) }
-    var phase by remember { mutableStateOf(FullBlackjackPhase.READY) }
-    var message by remember { mutableStateOf("BLACKJACK PAYS 3:2 · DEALER STANDS SOFT 17") }
-    var shownCounts by remember { mutableStateOf<List<Int>>(emptyList()) }
-    var dealerShown by remember { mutableIntStateOf(0) }
-    var holeRevealed by remember { mutableStateOf(false) }
+    var stakeText by rememberRound(viewModel, "blackjack:stakeText") { mutableStateOf("1000") }
+    var baseStake by rememberRound(viewModel, "blackjack:baseStake") { mutableLongStateOf(1_000L) }
+    var committedStake by rememberRound(viewModel, "blackjack:committedStake") { mutableLongStateOf(1_000L) }
+    var wager by rememberRound(viewModel, "blackjack:wager") { mutableStateOf<ActiveWager?>(null) }
+    var engine by rememberRound(viewModel, "blackjack:engine") { mutableStateOf<BlackjackTableEngine?>(null) }
+    var round by rememberRound(viewModel, "blackjack:round") { mutableStateOf<BlackjackTableRound?>(null) }
+    var phase by rememberRound(viewModel, "blackjack:phase") { mutableStateOf(FullBlackjackPhase.READY) }
+    var message by rememberRound(viewModel, "blackjack:message") { mutableStateOf("BLACKJACK PAYS 3:2 · DEALER STANDS SOFT 17") }
+    var shownCounts by rememberRound(viewModel, "blackjack:shownCounts") { mutableStateOf<List<Int>>(emptyList()) }
+    var dealerShown by rememberRound(viewModel, "blackjack:dealerShown") { mutableIntStateOf(0) }
+    var holeRevealed by rememberRound(viewModel, "blackjack:holeRevealed") { mutableStateOf(false) }
 
     fun leave() {
-        wager?.let(viewModel::cancelWager)
-        wager = null
+        // Navigation must not turn a visible hand into a refund. Resume this hand on return.
         onBack()
     }
     BackHandler(onBack = ::leave)
 
-    fun settle(active: ActiveWager, finished: BlackjackTableRound) {
-        val dealerScore = com.vircas.mobile.game.engines.BlackjackEngine.score(finished.dealer).total
+    suspend fun checkpoint(finished: BlackjackTableRound) {
+        if (!finished.isComplete) return
+        val active = wager ?: return
+        viewModel.checkpointWager(
+            active,
+            finished.payoutMultiplier,
+            blackjackResultLabel(finished),
+            blackjackResultDetails(finished)
+        ).join()
+    }
+
+    suspend fun settle(finished: BlackjackTableRound) {
+        // Read the retained wager here, after any split/double revision and animation.
+        val active = wager ?: return
+        checkpoint(finished)
         val resultLabel = blackjackResultLabel(finished)
-        val details = buildString {
-            append("Dealer ").append(dealerScore)
-            finished.hands.forEachIndexed { index, hand ->
-                append(" · H").append(index + 1)
-                    .append(' ').append(hand.score.total)
-                    .append(' ').append(hand.state.name)
-                    .append(" x").append(hand.betUnits)
-            }
-        }
         round = finished
+        shownCounts = finished.hands.map { it.cards.size }
         dealerShown = finished.dealer.size
         holeRevealed = true
         message = resultLabel
-        viewModel.settleWager(active, finished.payoutMultiplier, resultLabel, details)
+        viewModel.settleWager(
+            active, finished.payoutMultiplier, resultLabel, blackjackResultDetails(finished)
+        ).join()
         wager = null
         engine = null
         phase = FullBlackjackPhase.COMPLETE
     }
 
     suspend fun dealerTurn(from: BlackjackTableRound) {
-        val active = wager ?: return
+        if (wager == null) return
         val currentEngine = engine ?: return
+        val finished = currentEngine.playDealer(from)
+        // Persist the complete result before revealing the hole card or any dealer draws.
+        checkpoint(finished)
         phase = FullBlackjackPhase.DEALER_TURN
         message = "DEALER REVEALS"
         delay(260)
         holeRevealed = true
         delay(560)
 
-        val finished = currentEngine.playDealer(from)
         // Expose the dealer's final cards immediately, but gate their visibility one by one.
         round = finished.copy(hands = from.hands)
         var shown = dealerShown.coerceAtLeast(2)
@@ -110,7 +117,7 @@ fun FullBlackjackGameScreen(viewModel: AppViewModel, onBack: () -> Unit) {
             delay(560)
         }
         delay(430)
-        settle(active, finished)
+        settle(finished)
     }
 
     suspend fun continueAfterAction(next: BlackjackTableRound, activeText: String = "YOUR MOVE") {
@@ -123,9 +130,40 @@ fun FullBlackjackGameScreen(viewModel: AppViewModel, onBack: () -> Unit) {
         }
     }
 
+    LaunchedEffect(Unit) {
+        // A retained task also covers pending begin/increase callbacks, not just card delays.
+        if (viewModel.hasRoundTask("blackjack")) return@LaunchedEffect
+        val retained = round ?: return@LaunchedEffect
+        if (wager == null) {
+            if (phase == FullBlackjackPhase.COMPLETE) {
+                shownCounts = retained.hands.map { it.cards.size }
+                dealerShown = retained.dealer.size
+                holeRevealed = true
+            }
+        } else if (retained.isPlayerTurn) {
+            shownCounts = retained.hands.map { it.cards.size }
+            dealerShown = retained.dealer.size
+            holeRevealed = false
+            phase = FullBlackjackPhase.PLAYER_TURN
+            message = "YOUR MOVE · HAND ${retained.activeHandIndex + 1} · ${retained.hands[retained.activeHandIndex].score.total}"
+        } else {
+            scope.launch {
+                if (retained.isComplete) {
+                    settle(retained)
+                } else {
+                    shownCounts = retained.hands.map { it.cards.size }
+                    dealerShown = retained.dealer.size
+                    dealerTurn(retained)
+                }
+            }
+        }
+    }
+
     fun deal() {
+        if (wager != null || viewModel.hasRoundTask("blackjack") ||
+            (phase != FullBlackjackPhase.READY && phase != FullBlackjackPhase.COMPLETE)) return
         val stake = stakeText.toLongOrNull()?.takeIf { it > 0L } ?: 0L
-        if (stake <= 0L || stake > balance || phase == FullBlackjackPhase.DEALING) {
+        if (stake <= 0L || stake > balance) {
             message = "CHECK YOUR VIRTUAL STAKE"
             return
         }
@@ -135,11 +173,14 @@ fun FullBlackjackGameScreen(viewModel: AppViewModel, onBack: () -> Unit) {
         dealerShown = 0
         holeRevealed = false
 
-        viewModel.beginWager("Blackjack", stake) { started ->
+        scope.launch {
+            var startedWager: ActiveWager? = null
+            viewModel.beginWager("Blackjack", stake) { startedWager = it }.join()
+            val started = startedWager
             if (started == null) {
                 phase = FullBlackjackPhase.READY
                 message = "COULD NOT START · CHECK BALANCE"
-                return@beginWager
+                return@launch
             }
             val created = BlackjackTableEngine(viewModel.randomProvider())
             val initial = created.newRound()
@@ -149,24 +190,23 @@ fun FullBlackjackGameScreen(viewModel: AppViewModel, onBack: () -> Unit) {
             engine = created
             round = initial
             shownCounts = listOf(0)
+            checkpoint(initial)
 
-            scope.launch {
-                message = "DEALING"
-                delay(150)
-                shownCounts = listOf(1)
-                delay(235)
-                dealerShown = 1
-                delay(235)
-                shownCounts = listOf(2)
-                delay(235)
-                dealerShown = 2
-                delay(430)
-                if (initial.isPlayerTurn) {
-                    phase = FullBlackjackPhase.PLAYER_TURN
-                    message = "YOUR MOVE · ${initial.hands.first().score.total}"
-                } else {
-                    dealerTurn(initial)
-                }
+            message = "DEALING"
+            delay(150)
+            shownCounts = listOf(1)
+            delay(235)
+            dealerShown = 1
+            delay(235)
+            shownCounts = listOf(2)
+            delay(235)
+            dealerShown = 2
+            delay(430)
+            if (initial.isPlayerTurn) {
+                phase = FullBlackjackPhase.PLAYER_TURN
+                message = "YOUR MOVE · ${initial.hands.first().score.total}"
+            } else {
+                dealerTurn(initial)
             }
         }
     }
@@ -181,6 +221,7 @@ fun FullBlackjackGameScreen(viewModel: AppViewModel, onBack: () -> Unit) {
         phase = FullBlackjackPhase.DEALING
         message = "HIT"
         scope.launch {
+            checkpoint(next)
             delay(110)
             shownCounts = shownCounts.withCount(index, next.hands[index].cards.size, next.hands.size)
             delay(440)
@@ -210,22 +251,24 @@ fun FullBlackjackGameScreen(viewModel: AppViewModel, onBack: () -> Unit) {
         val index = current.activeHandIndex
         phase = FullBlackjackPhase.DEALING
         message = "DOUBLE DOWN"
-        viewModel.increaseWager(active, baseStake) { increased ->
+        scope.launch {
+            var increasedWager: ActiveWager? = null
+            viewModel.increaseWager(active, baseStake) { increasedWager = it }.join()
+            val increased = increasedWager
             if (increased == null) {
                 phase = FullBlackjackPhase.PLAYER_TURN
                 message = "NOT ENOUGH BALANCE TO DOUBLE"
-                return@increaseWager
+                return@launch
             }
             wager = increased
             committedStake = increased.stake
             val next = currentEngine.double(current)
             round = next
-            scope.launch {
-                delay(120)
-                shownCounts = shownCounts.withCount(index, next.hands[index].cards.size, next.hands.size)
-                delay(480)
-                continueAfterAction(next, "NEXT HAND")
-            }
+            checkpoint(next)
+            delay(120)
+            shownCounts = shownCounts.withCount(index, next.hands[index].cards.size, next.hands.size)
+            delay(480)
+            continueAfterAction(next, "NEXT HAND")
         }
     }
 
@@ -237,29 +280,31 @@ fun FullBlackjackGameScreen(viewModel: AppViewModel, onBack: () -> Unit) {
         val index = current.activeHandIndex
         phase = FullBlackjackPhase.DEALING
         message = "SPLITTING HAND"
-        viewModel.increaseWager(active, baseStake) { increased ->
+        scope.launch {
+            var increasedWager: ActiveWager? = null
+            viewModel.increaseWager(active, baseStake) { increasedWager = it }.join()
+            val increased = increasedWager
             if (increased == null) {
                 phase = FullBlackjackPhase.PLAYER_TURN
                 message = "NOT ENOUGH BALANCE TO SPLIT"
-                return@increaseWager
+                return@launch
             }
             wager = increased
             committedStake = increased.stake
             val next = currentEngine.split(current)
             round = next
             shownCounts = shownCounts.afterSplit(index, next.hands.size)
-            scope.launch {
-                delay(190)
-                shownCounts = shownCounts.withCount(index, 2, next.hands.size)
-                delay(280)
-                shownCounts = shownCounts.withCount(index + 1, 2, next.hands.size)
-                delay(420)
-                if (next.hands[index].cards.first().rank == com.vircas.mobile.game.engines.Rank.ACE) {
-                    message = "SPLIT ACES · ONE CARD EACH"
-                    delay(350)
-                }
-                continueAfterAction(next)
+            checkpoint(next)
+            delay(190)
+            shownCounts = shownCounts.withCount(index, 2, next.hands.size)
+            delay(280)
+            shownCounts = shownCounts.withCount(index + 1, 2, next.hands.size)
+            delay(420)
+            if (next.hands[index].cards.first().rank == com.vircas.mobile.game.engines.Rank.ACE) {
+                message = "SPLIT ACES · ONE CARD EACH"
+                delay(350)
             }
+            continueAfterAction(next)
         }
     }
 
@@ -392,6 +437,16 @@ fun FullBlackjackGameScreen(viewModel: AppViewModel, onBack: () -> Unit) {
                 }
             }
         }
+    }
+}
+
+private fun blackjackResultDetails(round: BlackjackTableRound): String = buildString {
+    append("Dealer ").append(com.vircas.mobile.game.engines.BlackjackEngine.score(round.dealer).total)
+    round.hands.forEachIndexed { index, hand ->
+        append(" · H").append(index + 1)
+            .append(' ').append(hand.score.total)
+            .append(' ').append(hand.state.name)
+            .append(" x").append(hand.betUnits)
     }
 }
 
