@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.vircas.mobile.core.game.ActiveWager
 import com.vircas.mobile.game.engines.CoinflipEngine
+import kotlinx.coroutines.Job
 
 private val PhysicsCoinMint = Color(0xFF5BF0AA)
 private val PhysicsCoinCopper = Color(0xFFD88A50)
@@ -52,26 +53,32 @@ private data class PhysicsPennyLockedFlip(
     val result: CoinflipEngine.Result,
     val picked: CoinflipEngine.Side,
     val series: Boolean,
-    val motion: RealPennyMotion
+    val motion: RealPennyMotion,
+    val payoutMultiplier: Double,
+    val streakAfter: Int,
+    val settlementResult: String,
+    val details: String,
+    val checkpoint: Job
 )
 
 @Composable
 fun PhysicsPennyCoinflipGameScreen(viewModel: AppViewModel, onBack: () -> Unit) {
     val balance by viewModel.balance.collectAsState()
-    var stake by remember { mutableStateOf("1000") }
-    var pick by remember { mutableStateOf(CoinflipEngine.Side.HEADS) }
-    var seriesMode by remember { mutableStateOf(false) }
-    var activeSeries by remember { mutableStateOf<ActiveWager?>(null) }
-    var seriesMultiplier by remember { mutableDoubleStateOf(1.0) }
-    var streak by remember { mutableIntStateOf(0) }
+    var stake by rememberRound(viewModel, "physicsPenny.stake") { mutableStateOf("1000") }
+    var pick by rememberRound(viewModel, "physicsPenny.pick") { mutableStateOf(CoinflipEngine.Side.HEADS) }
+    var seriesMode by rememberRound(viewModel, "physicsPenny.seriesMode") { mutableStateOf(false) }
+    var activeSeries by rememberRound(viewModel, "physicsPenny.activeSeries") { mutableStateOf<ActiveWager?>(null) }
+    var seriesMultiplier by rememberRound(viewModel, "physicsPenny.seriesMultiplier") { mutableDoubleStateOf(1.0) }
+    var streak by rememberRound(viewModel, "physicsPenny.streak") { mutableIntStateOf(0) }
 
-    var pending by remember { mutableStateOf<PhysicsPennyLockedFlip?>(null) }
-    var currentMotion by remember { mutableStateOf(RealPennyMotion.Idle) }
-    var flipToken by remember { mutableIntStateOf(0) }
-    var flipping by remember { mutableStateOf(false) }
-    var revealedSide by remember { mutableStateOf<CoinflipEngine.Side?>(null) }
-    var lastWon by remember { mutableStateOf<Boolean?>(null) }
-    var message by remember {
+    var pending by rememberRound(viewModel, "physicsPenny.pending") { mutableStateOf<PhysicsPennyLockedFlip?>(null) }
+    var currentMotion by rememberRound(viewModel, "physicsPenny.currentMotion") { mutableStateOf(RealPennyMotion.Idle) }
+    var flipToken by rememberRound(viewModel, "physicsPenny.flipToken") { mutableIntStateOf(0) }
+    var flipping by rememberRound(viewModel, "physicsPenny.flipping") { mutableStateOf(false) }
+    var starting by rememberRound(viewModel, "physicsPenny.starting") { mutableStateOf(false) }
+    var revealedSide by rememberRound(viewModel, "physicsPenny.revealedSide") { mutableStateOf<CoinflipEngine.Side?>(null) }
+    var lastWon by rememberRound(viewModel, "physicsPenny.lastWon") { mutableStateOf<Boolean?>(null) }
+    var message by rememberRound(viewModel, "physicsPenny.message") {
         mutableStateOf("Pick a side. The penny lands wherever its random impulse takes it.")
     }
 
@@ -79,24 +86,98 @@ fun PhysicsPennyCoinflipGameScreen(viewModel: AppViewModel, onBack: () -> Unit) 
 
     fun parsedStake(): Long = stake.toLongOrNull()?.takeIf { it > 0L } ?: 0L
 
+    fun finishFlip(current: PhysicsPennyLockedFlip, cashOut: Boolean = false) {
+        if (pending !== current) return
+        val won = current.result.side == current.picked
+        revealedSide = current.result.side
+        lastWon = won
+
+        if (current.series && won && !cashOut) {
+            // Apply the locked bank once; a recreated animation must not multiply it again.
+            seriesMultiplier = current.payoutMultiplier
+            streak = current.streakAfter
+            message = "${current.result.side.name} · WIN · bank ${"%.2f".format(seriesMultiplier)}x"
+        } else {
+            viewModel.settleWager(
+                current.wager,
+                current.payoutMultiplier,
+                current.settlementResult,
+                current.details
+            )
+            activeSeries = null
+            seriesMultiplier = 1.0
+            streak = 0
+            message = when {
+                current.series && won ->
+                    "Cashed out ${"%.2f".format(current.payoutMultiplier)}x · streak ${current.streakAfter}."
+                current.series -> "${current.result.side.name} · series lost"
+                won -> "${current.result.side.name} · WIN · 1.98x"
+                else -> "${current.result.side.name} · LOSS"
+            }
+        }
+        pending = null
+        flipping = false
+    }
+
     fun leave() {
-        val pendingWager = pending?.wager
-        if (pendingWager != null) viewModel.cancelWager(pendingWager)
-        activeSeries?.takeIf { it != pendingWager }?.let(viewModel::cancelWager)
+        val current = pending
+        if (current != null) {
+            // Back consumes the already-known result, including the next series win or loss.
+            finishFlip(current, cashOut = true)
+        } else {
+            activeSeries?.let { active ->
+                if (streak > 0) {
+                    viewModel.settleWager(
+                        active,
+                        seriesMultiplier,
+                        "Coinflip series cash out",
+                        "Streak $streak"
+                    )
+                    message = "Cashed out ${"%.2f".format(seriesMultiplier)}x · streak $streak."
+                } else {
+                    // No flip has resolved: only an untouched stake can be refunded.
+                    viewModel.cancelWager(active)
+                }
+            }
+        }
         pending = null
         activeSeries = null
+        seriesMultiplier = 1.0
+        streak = 0
+        flipping = false
+        starting = false
+        flipToken++ // Invalidate a late begin callback or an old animation continuation.
         onBack()
     }
 
-    BackHandler(enabled = flipping || activeSeries != null) {
-        if (!flipping) leave()
-    }
+    BackHandler(onBack = ::leave)
 
     fun queueFlip(wager: ActiveWager, isSeries: Boolean) {
-        if (flipping) return
+        if (flipping || starting || pending != null) return
 
         // Game RNG is resolved first and remains completely separate from visual physics.
-        val result = CoinflipEngine(viewModel.randomProvider()).flip(pick)
+        val picked = pick
+        val result = CoinflipEngine(viewModel.randomProvider(wager)).flip(picked)
+        val won = result.side == picked
+        val multiplier = when {
+            !isSeries -> result.outcome.multiplier
+            won -> seriesMultiplier * result.outcome.multiplier
+            else -> 0.0
+        }
+        val streakAfter = if (isSeries && won) streak + 1 else 0
+        val settlementResult = if (isSeries && won) "Coinflip series cash out" else result.side.name
+        val details = when {
+            !isSeries -> "Picked ${picked.name}"
+            won -> "Streak $streakAfter"
+            else -> "Series lost after $streak win${if (streak == 1) "" else "s"}"
+        }
+        val checkpoint = viewModel.checkpointWager(
+            wager = wager,
+            multiplier = multiplier,
+            result = settlementResult,
+            details = details,
+            terminal = !isSeries || !won
+        )
         // The visual simulation samples initial velocity/spin/material properties only. It does
         // not sample a landing coordinate; the final position emerges from integration.
         val motion = randomRealPennyMotion(result.side)
@@ -104,9 +185,14 @@ fun PhysicsPennyCoinflipGameScreen(viewModel: AppViewModel, onBack: () -> Unit) 
         pending = PhysicsPennyLockedFlip(
             wager = wager,
             result = result,
-            picked = pick,
+            picked = picked,
             series = isSeries,
-            motion = motion
+            motion = motion,
+            payoutMultiplier = multiplier,
+            streakAfter = streakAfter,
+            settlementResult = settlementResult,
+            details = details,
+            checkpoint = checkpoint
         )
         revealedSide = null
         lastWon = null
@@ -115,16 +201,30 @@ fun PhysicsPennyCoinflipGameScreen(viewModel: AppViewModel, onBack: () -> Unit) 
     }
 
     fun startSingle() {
-        if (flipping) return
+        if (flipping || starting || activeSeries != null) return
+        starting = true
+        val request = ++flipToken
         viewModel.beginWager("Coinflip", parsedStake()) { started ->
+            if (flipToken != request) {
+                started?.let { viewModel.cancelWager(it) }
+                return@beginWager
+            }
+            starting = false
             if (started == null) message = "Could not start · check stake and balance."
             else queueFlip(started, false)
         }
     }
 
     fun startSeriesAndFlip() {
-        if (flipping || activeSeries != null) return
+        if (flipping || starting || activeSeries != null) return
+        starting = true
+        val request = ++flipToken
         viewModel.beginWager("Coinflip Series", parsedStake()) { started ->
+            if (flipToken != request) {
+                started?.let { viewModel.cancelWager(it) }
+                return@beginWager
+            }
+            starting = false
             if (started == null) {
                 message = "Could not start · check stake and balance."
             } else {
@@ -138,7 +238,7 @@ fun PhysicsPennyCoinflipGameScreen(viewModel: AppViewModel, onBack: () -> Unit) 
 
     fun cashOutSeries() {
         val active = activeSeries ?: return
-        if (flipping || streak <= 0) return
+        if (flipping || starting || pending != null || streak <= 0) return
         viewModel.settleWager(
             active,
             seriesMultiplier,
@@ -153,6 +253,8 @@ fun PhysicsPennyCoinflipGameScreen(viewModel: AppViewModel, onBack: () -> Unit) 
 
     LaunchedEffect(flipToken) {
         val current = pending ?: return@LaunchedEffect
+        current.checkpoint.join()
+        if (!flipping || pending !== current) return@LaunchedEffect
         message = "RESULT LOCKED · random impulse applied…"
         toss.snapTo(0f)
         toss.animateTo(
@@ -163,43 +265,7 @@ fun PhysicsPennyCoinflipGameScreen(viewModel: AppViewModel, onBack: () -> Unit) 
             )
         )
 
-        revealedSide = current.result.side
-        val won = current.result.side == current.picked
-        lastWon = won
-
-        if (current.series) {
-            if (won) {
-                seriesMultiplier *= current.result.outcome.multiplier
-                streak++
-                message = "${current.result.side.name} · WIN · bank ${"%.2f".format(seriesMultiplier)}x"
-            } else {
-                viewModel.settleWager(
-                    current.wager,
-                    0.0,
-                    current.result.side.name,
-                    "Series lost after $streak win${if (streak == 1) "" else "s"}"
-                )
-                activeSeries = null
-                seriesMultiplier = 1.0
-                streak = 0
-                message = "${current.result.side.name} · series lost"
-            }
-        } else {
-            viewModel.settleWager(
-                current.wager,
-                current.result.outcome.multiplier,
-                current.result.side.name,
-                "Picked ${current.picked.name}"
-            )
-            message = if (won) {
-                "${current.result.side.name} · WIN · 1.98x"
-            } else {
-                "${current.result.side.name} · LOSS"
-            }
-        }
-
-        pending = null
-        flipping = false
+        finishFlip(current)
     }
 
     PremiumGameFrame(
@@ -207,7 +273,7 @@ fun PhysicsPennyCoinflipGameScreen(viewModel: AppViewModel, onBack: () -> Unit) 
         subtitle = "INTERNET LINCOLN PENNY · IMPULSE PHYSICS",
         balance = balance,
         accent = PhysicsCoinCopper,
-        onBack = { if (!flipping) leave() }
+        onBack = ::leave
     ) { compact, landscape ->
         val stage: @Composable (Modifier) -> Unit = { modifier ->
             PhysicsPennyCoinStage(
@@ -225,12 +291,12 @@ fun PhysicsPennyCoinflipGameScreen(viewModel: AppViewModel, onBack: () -> Unit) 
             PhysicsPennyControls(
                 modifier = modifier,
                 stake = stake,
-                onStake = { stake = it },
+                onStake = { if (!flipping && !starting && activeSeries == null) stake = it },
                 pick = pick,
-                onPick = { if (!flipping) pick = it },
+                onPick = { if (!flipping && !starting) pick = it },
                 seriesMode = seriesMode,
-                onSeriesMode = { if (!flipping && activeSeries == null) seriesMode = it },
-                flipping = flipping,
+                onSeriesMode = { if (!flipping && !starting && activeSeries == null) seriesMode = it },
+                flipping = flipping || starting,
                 seriesActive = activeSeries != null,
                 streak = streak,
                 seriesMultiplier = seriesMultiplier,
