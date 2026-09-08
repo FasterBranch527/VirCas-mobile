@@ -19,12 +19,7 @@ jobs:
         with:
           gradle-version: '8.11.1'
       - name: Unit tests
-        run: |
-          set +e
-          gradle testDebugUnitTest --stacktrace --console=plain 2>&1 | tee "$RUNNER_TEMP/vircas-tests.log"
-          result=${PIPESTATUS[0]}
-          python3 -c 'import os,pathlib; lines=pathlib.Path(os.environ["RUNNER_TEMP"],"vircas-tests.log").read_text(errors="replace").splitlines(); errors=[line[3:] for line in lines if line.startswith("e: ")][:30]; print("\n".join("::error title=Kotlin compiler::"+line.replace("%","%25").replace("\r","%0D").replace("\n","%0A") for line in errors))'
-          exit "$result"
+        run: gradle testDebugUnitTest --stacktrace
       - name: Compile debug and instrumentation APKs
         run: gradle assembleDebug assembleDebugAndroidTest --stacktrace
       - name: Assemble signed release APK
