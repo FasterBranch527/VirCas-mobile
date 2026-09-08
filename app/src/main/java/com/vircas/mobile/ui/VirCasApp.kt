@@ -48,10 +48,12 @@ private val navItems = listOf(
 fun VirCasApp(appViewModel: AppViewModel = viewModel()) {
     val settings by appViewModel.settings.collectAsState()
     VirCasTheme(darkTheme = settings.darkMode) {
-        if (!settings.onboardingComplete) {
-            OnboardingScreen(onComplete = appViewModel::completeOnboarding)
-        } else {
-            VirCasNavigation(appViewModel)
+        RoundPersistenceGate(appViewModel) {
+            if (!settings.onboardingComplete) {
+                OnboardingScreen(onComplete = appViewModel::completeOnboarding)
+            } else {
+                VirCasNavigation(appViewModel)
+            }
         }
     }
 }

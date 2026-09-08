@@ -15,6 +15,7 @@ import com.vircas.mobile.core.data.UserSettings
 import com.vircas.mobile.core.game.ActiveWager
 import com.vircas.mobile.core.game.RoundMemory
 import com.vircas.mobile.core.game.RoundReceipt
+import com.vircas.mobile.core.game.RoundWriteQueue
 import com.vircas.mobile.core.progression.Achievement
 import com.vircas.mobile.core.progression.DailyMission
 import com.vircas.mobile.core.progression.DailyRewardClaim
@@ -35,9 +36,8 @@ import com.vircas.mobile.game.engines.SportsBettingEngine
 import com.vircas.mobile.game.engines.VirtualEvent
 import java.security.MessageDigest
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -46,9 +46,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import java.util.UUID
 
 data class ResolvedPlay(val multiplier: Double, val result: String, val details: String = "")
@@ -65,15 +62,17 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val roundMemory = RoundMemory()
     private val taskScopes = mutableMapOf<String, CoroutineScope>()
     private val startingGames = mutableSetOf<String>()
-    private val pendingWrites = linkedMapOf<String, suspend () -> Unit>()
-    private val writeMutex = Mutex()
-    private var retrying = false
     internal var roundGeneration by mutableIntStateOf(0)
         private set
     private val readyState = MutableStateFlow(false)
     val ready: StateFlow<Boolean> = readyState
     private val saveErrorState = MutableStateFlow<String?>(null)
     val saveError: StateFlow<String?> = saveErrorState
+    private val roundWrites = RoundWriteQueue(
+        scope = viewModelScope,
+        onFailure = ::reportError,
+        onIdle = { saveErrorState.value = null }
+    )
 
     val balance: StateFlow<Long> = container.walletRepository.balance.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WalletRepository.STARTING_BALANCE)
     val settings: StateFlow<UserSettings> = container.settingsRepository.settings.stateIn(viewModelScope, SharingStarted.Eagerly, UserSettings())
@@ -84,15 +83,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     init { initializeRounds() }
 
-    private fun initializeRounds() = viewModelScope.launch {
-        try {
+    private fun initializeRounds(): Deferred<Unit> {
+        val generation = roundGeneration
+        return roundWrite {
             container.gameLedger.recoverInterruptedRounds()
-            readyState.value = true
-        } catch (error: Exception) {
-            failedWrite("initialize", error) {
-                container.gameLedger.recoverInterruptedRounds()
-                readyState.value = true
-            }
+            if (generation == roundGeneration) readyState.value = true
         }
     }
 
@@ -157,7 +152,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     reportError(error)
                     onResult(null)
                 }
-            } finally { startingGames.remove(game) }
+            } finally {
+                if (generation == roundGeneration) startingGames.remove(game)
+            }
         }
     }
 
@@ -170,43 +167,33 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun checkpointWager(wager: ActiveWager, multiplier: Double, result: String, details: String = "", terminal: Boolean = true) =
-        roundWrite("checkpoint:${wager.id}") { container.gameLedger.checkpoint(wager, multiplier, result, details, terminal) }
+    /** Await the returned acknowledgement, not merely the completion of an attempted write. */
+    fun checkpointWager(wager: ActiveWager, multiplier: Double, result: String, details: String = "", terminal: Boolean = true): Deferred<Unit> =
+        roundWrite { container.gameLedger.checkpoint(wager, multiplier, result, details, terminal) }
 
-    fun settleWager(wager: ActiveWager, multiplier: Double, result: String, details: String = "", onResult: (RoundReceipt?) -> Unit = {}) =
-        roundWrite("settle:${wager.id}") {
-            flushCheckpoint(wager.id)
-            val receipt = container.gameLedger.settle(wager, multiplier, result, details)
-            clearRoundRandom(wager.id)
-            deliverResult { onResult(receipt) }
-        }
-
-    fun cancelWager(wager: ActiveWager) = roundWrite("cancel:${wager.id}") {
-        flushCheckpoint(wager.id)
-        container.gameLedger.cancel(wager)
-        clearRoundRandom(wager.id)
-    }
-
-    private suspend fun flushCheckpoint(id: String) {
-        val key = "checkpoint:$id"
-        pendingWrites[key]?.let { retry -> retry(); pendingWrites.remove(key) }
-    }
-
-    private fun roundWrite(key: String, write: suspend () -> Unit): Job {
+    fun settleWager(wager: ActiveWager, multiplier: Double, result: String, details: String = "", onResult: (RoundReceipt?) -> Unit = {}): Deferred<Unit> {
         val generation = roundGeneration
-        return viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {
-            try {
-                writeMutex.withLock {
-                    if (generation != roundGeneration) return@launch
-                    withContext(NonCancellable) { write() }
-                }
-                if (generation == roundGeneration) {
-                    pendingWrites.remove(key)
-                    if (pendingWrites.isEmpty()) saveErrorState.value = null
-                }
-            } catch (error: Exception) {
-                if (generation == roundGeneration) failedWrite(key, error, write)
+        return roundWrite {
+            val receipt = container.gameLedger.settle(wager, multiplier, result, details)
+            if (generation == roundGeneration) {
+                clearRoundRandom(wager.id)
+                deliverResult { onResult(receipt) }
             }
+        }
+    }
+
+    fun cancelWager(wager: ActiveWager): Deferred<Unit> {
+        val generation = roundGeneration
+        return roundWrite {
+            container.gameLedger.cancel(wager)
+            if (generation == roundGeneration) clearRoundRandom(wager.id)
+        }
+    }
+
+    private fun roundWrite(write: suspend () -> Unit): Deferred<Unit> {
+        val generation = roundGeneration
+        return roundWrites.submit {
+            if (generation == roundGeneration) write()
         }
     }
 
@@ -215,37 +202,19 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         try { deliver() } catch (error: Exception) { Log.e("AppViewModel", "Round presentation failed", error) }
     }
 
-    private fun failedWrite(key: String, error: Exception, retry: suspend () -> Unit) {
-        pendingWrites[key] = retry
-        reportError(error)
-    }
-
     private fun reportError(error: Exception) {
         Log.w("AppViewModel", "Local save failed", error)
         saveErrorState.value = "Could not save local data. Please retry before continuing."
     }
 
-    fun retrySaving() = viewModelScope.launch {
-        if (retrying) return@launch
-        retrying = true
-        val generation = roundGeneration
-        try {
-            writeMutex.withLock {
-                for ((key, retry) in pendingWrites.toMap()) {
-                    if (generation != roundGeneration) return@launch
-                    withContext(NonCancellable) { retry() }
-                    pendingWrites.remove(key)
-                }
-                if (generation == roundGeneration) saveErrorState.value = null
-            }
-        } catch (error: Exception) { if (generation == roundGeneration) reportError(error) }
-        finally { retrying = false }
-    }
+    fun retrySaving() = viewModelScope.launch { roundWrites.retry() }
 
     private suspend fun failedReservation(wager: ActiveWager, error: Exception) {
         try { container.gameLedger.cancel(wager) }
         catch (saveFailure: Exception) {
-            failedWrite("cancel:${wager.id}", saveFailure) { container.gameLedger.cancel(wager) }
+            reportError(saveFailure)
+            // Keep a retryable cancellation in the same FIFO as checkpoints and settlements.
+            cancelWager(wager)
         }
         Log.w("AppViewModel", "Round resolution failed", error)
     }
@@ -353,14 +322,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         roundRandoms.clear()
         interactiveRound = null
         interactiveWagerId = null
-        pendingWrites.clear()
+        roundWrites.discardPending()
         startingGames.clear()
         saveErrorState.value = null
         debugRoundCounter = 0L
-        return roundWrite("reset") {
+        val generation = roundGeneration
+        return roundWrite {
             container.gameLedger.resetLocalAccount()
             container.settingsRepository.reset()
-            readyState.value = true
+            if (generation == roundGeneration) readyState.value = true
         }
     }
 
