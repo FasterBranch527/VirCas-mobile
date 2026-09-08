@@ -6,6 +6,7 @@ import com.vircas.mobile.core.data.AppDatabase
 import com.vircas.mobile.core.data.FairnessRepository
 import com.vircas.mobile.core.data.GameHistoryRepository
 import com.vircas.mobile.core.data.InventoryRepository
+import com.vircas.mobile.core.data.LEDGER_MIGRATION_3_4
 import com.vircas.mobile.core.data.SettingsRepository
 import com.vircas.mobile.core.game.GameLedger
 import com.vircas.mobile.core.progression.ProgressionRepository
@@ -18,9 +19,9 @@ class VirCasApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         val db = Room.databaseBuilder(this, AppDatabase::class.java, "vircas.db")
-            .fallbackToDestructiveMigration()
+            .addMigrations(LEDGER_MIGRATION_3_4)
             .build()
-        val wallet = WalletRepository(this)
+        val wallet = WalletRepository(this, db)
         val progression = ProgressionRepository(this)
         val history = GameHistoryRepository(db.gameHistoryDao())
         val fairness = FairnessRepository(db.fairnessRoundDao())
