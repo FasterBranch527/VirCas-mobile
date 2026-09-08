@@ -22,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -30,6 +31,8 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -43,15 +46,14 @@ import com.vircas.mobile.core.game.CrashFlightMath
 import com.vircas.mobile.core.game.CrashTrajectory
 import java.util.Locale
 import kotlin.math.PI
-import kotlin.math.cos
 import kotlin.math.floor
 import kotlin.math.sin
 
 internal val CrashMint = Color(0xFF6AF4CF)
 internal val CrashCoral = Color(0xFFFF667C)
-internal val CrashPanel = Color(0xFF121B2C)
-internal val CrashMuted = Color(0xFF93A3BA)
-internal val CrashInk = Color(0xFF07111C)
+internal val CrashPanel = Color(0xFF121922)
+internal val CrashMuted = Color(0xFF8594A6)
+internal val CrashInk = Color(0xFF080E15)
 
 // Kept as the original helper for source compatibility; growth and the 1000x cap are unchanged.
 internal fun crashDisplayMultiplier(seconds: Float): Double = CrashFlightMath.multiplier(seconds.toDouble())
@@ -61,7 +63,8 @@ internal fun CrashRocketScene(
     state: CrashUiState,
     frameTime: State<Long>,
     reducedMotion: Boolean,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onSceneBounds: (Rect) -> Unit = {}
 ) {
     val shape = RoundedCornerShape(26.dp)
     val artwork = remember { RocketArtwork() }
@@ -69,13 +72,20 @@ internal fun CrashRocketScene(
     val fill = remember { Path() }
     val flame = remember { Path() }
     val stars = remember {
-        List(46) { index ->
-            Star(((index * 73 + 19) % 997) / 997f, ((index * 127 + 61) % 991) / 991f, .55f + index % 3 * .25f, .12f + index % 4 * .04f)
-        }
+        // Deliberately sparse composition, not a generated dot grid or decorative orbit rings.
+        listOf(
+            Star(.12f, .37f, .6f, .28f), Star(.29f, .18f, .45f, .18f),
+            Star(.61f, .13f, .65f, .29f), Star(.81f, .26f, .45f, .18f),
+            Star(.93f, .49f, .7f, .24f), Star(.53f, .39f, .45f, .14f),
+            Star(.18f, .59f, .55f, .18f), Star(.72f, .55f, .45f, .15f),
+            Star(.42f, .64f, .5f, .13f)
+        )
     }
     BoxWithConstraints(
-        modifier.clip(shape)
-            .background(Brush.verticalGradient(listOf(Color(0xFF111D32), Color(0xFF090F1F))))
+        modifier.onGloballyPositioned { coordinates ->
+            onSceneBounds(Rect(coordinates.positionInWindow(), Size(coordinates.size.width.toFloat(), coordinates.size.height.toFloat())))
+        }.clip(shape)
+            .background(Brush.verticalGradient(listOf(Color(0xFF080D14), Color(0xFF111C29))))
             .border(1.dp, Color.White.copy(alpha = .07f), shape)
             .testTag("crash-rocket-scene")
             .semantics { contentDescription = "Rocket following the Crash flight curve" }
@@ -89,7 +99,6 @@ internal fun CrashRocketScene(
             val seconds = flight?.visibleSeconds(now) ?: 0.0
             val crashed = flight?.hasCrashed(now) == true
             val flying = flight != null && !crashed
-            val burst = flight?.burstProgress(now) ?: 0f
             val accent = if (crashed) CrashCoral else CrashMint
             val p = CrashFlightMath.travel(seconds)
             val normalized = CrashTrajectory.point(p)
@@ -99,8 +108,7 @@ internal fun CrashRocketScene(
             val control = Offset((prefix.x * size.width).toFloat(), (prefix.y * size.height).toFloat())
             val angle = (CrashTrajectory.headingRadians(p, size.width.toDouble(), size.height.toDouble()) * 180.0 / PI).toFloat()
 
-            drawSpace(stars)
-            drawFlightGrid(start.y)
+            drawOrbitalBackdrop(stars, seconds, reducedMotion)
             trace.reset()
             trace.moveTo(start.x, start.y)
             trace.quadraticBezierTo(control.x, control.y, endpoint.x, endpoint.y)
@@ -109,15 +117,15 @@ internal fun CrashRocketScene(
             fill.quadraticBezierTo(control.x, control.y, endpoint.x, endpoint.y)
             fill.lineTo(endpoint.x, start.y)
             fill.close()
-            drawPath(fill, Brush.verticalGradient(listOf(accent.copy(alpha = .14f), accent.copy(alpha = .012f)), 0f, start.y))
-            drawPath(trace, accent.copy(alpha = .045f), style = Stroke(15.dp.toPx(), cap = StrokeCap.Round))
-            drawPath(trace, accent.copy(alpha = .12f), style = Stroke(7.dp.toPx(), cap = StrokeCap.Round))
-            drawPath(trace, accent, style = Stroke(2.5.dp.toPx(), cap = StrokeCap.Round))
+            drawPath(fill, Brush.verticalGradient(listOf(accent.copy(alpha = .065f), Color.Transparent), 0f, start.y))
+            drawPath(trace, accent.copy(alpha = .08f), style = Stroke(7.dp.toPx(), cap = StrokeCap.Round))
+            drawPath(trace, accent, style = Stroke(2.3.dp.toPx(), cap = StrokeCap.Round))
             drawCircle(accent.copy(alpha = .28f), 4.dp.toPx(), start)
             drawCircle(accent, 1.7.dp.toPx(), start)
 
             val rocketScale = density * (size.width / density / 360f).coerceIn(.72f, 1.08f)
-            val rocketAlpha = if (crashed) (1f - burst * 2.8f).coerceAtLeast(0f) else 1f
+            // The fullscreen layer takes over the same shell at the exact crash instant.
+            val rocketAlpha = if (crashed) 0f else 1f
             if (rocketAlpha > 0f) {
                 withTransform({
                     translate(endpoint.x, endpoint.y)
@@ -126,11 +134,6 @@ internal fun CrashRocketScene(
                 }) {
                     drawRocket(artwork, flame, seconds, flying, reducedMotion, rocketAlpha)
                 }
-            }
-            if (crashed) {
-                if (!reducedMotion && burst < 1f) drawRocketBurst(endpoint, burst)
-                drawCircle(CrashCoral.copy(alpha = .18f), 7.dp.toPx(), endpoint)
-                drawCircle(CrashCoral, 2.8.dp.toPx(), endpoint)
             }
         }
 
@@ -144,6 +147,7 @@ internal fun CrashRocketScene(
                 CrashPhase.PREPARING -> "PREPARING"
                 CrashPhase.FLYING -> "● LIVE FLIGHT"
                 CrashPhase.CRASHED -> "SIGNAL LOST"
+                CrashPhase.RESETTING -> "LAUNCH PAD READY"
             }
             Text(badge, color = if (state.phase == CrashPhase.CRASHED) CrashCoral else CrashMint, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
             Text("VIRTUAL COINS", color = CrashMuted.copy(alpha = .75f), fontSize = 8.sp, letterSpacing = 1.sp)
@@ -201,30 +205,28 @@ private fun FlightTimeReadout(flight: CrashFlight?, frameTime: State<Long>, modi
 
 private data class Star(val x: Float, val y: Float, val radius: Float, val alpha: Float)
 
-private fun DrawScope.drawSpace(stars: List<Star>) {
+private fun DrawScope.drawOrbitalBackdrop(stars: List<Star>, seconds: Double, reducedMotion: Boolean) {
+    val drift = if (reducedMotion) 0f else (1.0 - kotlin.math.exp(-seconds / 18.0)).toFloat()
+    stars.forEach { star ->
+        drawCircle(Color(0xFFD5E0EA).copy(alpha = star.alpha), star.radius.dp.toPx(), Offset(size.width * star.x - drift * 5.dp.toPx(), size.height * star.y))
+    }
+    // One physical horizon with a restrained atmosphere and a dark terminator.
+    val center = Offset(size.width * .20f - drift * 7.dp.toPx(), size.height * 2.02f)
+    val radius = size.height * 1.18f
     drawCircle(
-        Brush.radialGradient(listOf(Color(0xFF283A68).copy(alpha = .22f), Color.Transparent), Offset(size.width * .82f, size.height * .18f), size.width * .63f),
-        size.width * .63f, Offset(size.width * .82f, size.height * .18f)
+        Brush.radialGradient(
+            0f to Color.Transparent, .91f to Color.Transparent,
+            .968f to Color(0xFF446C89).copy(alpha = .09f),
+            .99f to Color(0xFF81A8BB).copy(alpha = .12f), 1f to Color.Transparent,
+            center = center, radius = radius * 1.05f
+        ), radius * 1.05f, center
     )
-    stars.forEach { star -> drawCircle(Color.White.copy(alpha = star.alpha), star.radius.dp.toPx(), Offset(size.width * star.x, size.height * star.y)) }
-    drawCircle(Color(0xFF647BBA).copy(alpha = .035f), size.width * .32f, Offset(size.width * 1.08f, size.height * .13f), style = Stroke(1.dp.toPx()))
-    drawCircle(Color(0xFF647BBA).copy(alpha = .035f), size.width * .38f, Offset(size.width * 1.08f, size.height * .13f), style = Stroke(1.dp.toPx()))
-}
-
-private fun DrawScope.drawFlightGrid(baseline: Float) {
-    val grid = Color(0xFFB0BED5).copy(alpha = .055f)
-    for (index in 1..5) {
-        val x = size.width * index / 6f
-        drawLine(grid, Offset(x, size.height * .30f), Offset(x, baseline), .7.dp.toPx())
-    }
-    for (index in 0..3) {
-        val y = baseline - size.height * .14f * index
-        drawLine(grid, Offset(size.width * .06f, y), Offset(size.width * .95f, y), .7.dp.toPx())
-    }
+    drawCircle(Brush.verticalGradient(listOf(Color(0xFF162331), Color(0xFF080D13)), center.y - radius, size.height), radius, center)
+    drawCircle(Color(0xFF82A7B8).copy(alpha = .16f), radius, center, style = Stroke(.65.dp.toPx()))
 }
 
 /** Cached vector silhouette. Its engine nozzle is (0, 0), exactly the endpoint of the graph. */
-private class RocketArtwork {
+internal class RocketArtwork {
     val body = Path().apply {
         moveTo(2f, -6f)
         cubicTo(16f, -11f, 33f, -11f, 46f, 0f)
@@ -242,8 +244,8 @@ private class RocketArtwork {
 
 private fun DrawScope.drawRocket(art: RocketArtwork, flame: Path, seconds: Double, flying: Boolean, reducedMotion: Boolean, alpha: Float) {
     if (flying) {
-        val pulse = if (reducedMotion) 0f else sin(seconds * 15.0).toFloat() * 2f + sin(seconds * 23.0).toFloat()
-        val length = 27f + pulse
+        val pulse = if (reducedMotion) 0f else sin(seconds * 7.0).toFloat() * 1.25f + sin(seconds * 11.0).toFloat() * .65f
+        val length = 32f + pulse
         drawCircle(Brush.radialGradient(listOf(Color(0xFFFFBA69).copy(alpha = .18f * alpha), Color.Transparent), Offset(-8f, 0f), 25f), 25f, Offset(-8f, 0f))
         flame.reset()
         flame.moveTo(1f, -4.5f)
@@ -260,8 +262,12 @@ private fun DrawScope.drawRocket(art: RocketArtwork, flame: Path, seconds: Doubl
             }
         }
     }
-    drawPath(art.upperFin, Color(0xFF7779BD).copy(alpha = alpha))
-    drawPath(art.lowerFin, Color(0xFFAEA2F8).copy(alpha = alpha))
+    drawRocketShell(art, alpha)
+}
+
+internal fun DrawScope.drawRocketShell(art: RocketArtwork, alpha: Float) {
+    drawPath(art.upperFin, Color(0xFF8296AA).copy(alpha = alpha))
+    drawPath(art.lowerFin, Color(0xFFADBDC8).copy(alpha = alpha))
     drawRoundRect(Color(0xFF52627E).copy(alpha = alpha), Offset(-2f, -4.5f), Size(7f, 9f), CornerRadius(2f))
     drawPath(art.body, art.bodyBrush, alpha = alpha)
     drawPath(art.body, Color.White.copy(alpha = .52f * alpha), style = Stroke(.7f))
@@ -271,19 +277,4 @@ private fun DrawScope.drawRocket(art: RocketArtwork, flame: Path, seconds: Doubl
     drawCircle(Color(0xFF6DE3F0).copy(alpha = alpha), 3.5f, Offset(28f, 0f))
     drawCircle(Color.White.copy(alpha = .82f * alpha), 1.15f, Offset(29f, -1.3f))
     drawLine(Color(0xFF8BA0C0).copy(alpha = .65f * alpha), Offset(8f, -5f), Offset(8f, 5f), .8f)
-}
-
-private fun DrawScope.drawRocketBurst(point: Offset, progress: Float) {
-    val fade = (1f - progress) * (1f - progress)
-    val expansion = 1f - (1f - progress) * (1f - progress)
-    val radius = (5f + expansion * 49f).dp.toPx()
-    drawCircle(Brush.radialGradient(listOf(CrashCoral.copy(alpha = .22f * fade), Color.Transparent), point, radius), radius, point)
-    drawCircle(CrashCoral.copy(alpha = .5f * fade), radius * .8f, point, style = Stroke(1.4.dp.toPx()))
-    repeat(12) { index ->
-        val angle = index * PI * 2.0 / 12.0
-        val direction = Offset(cos(angle).toFloat(), sin(angle).toFloat())
-        val distance = radius * (.66f + (index % 3) * .14f)
-        val tail = point + direction * distance
-        drawLine(Color(0xFFFFCAB1).copy(alpha = .85f * fade), tail, tail + direction * (3f + 6f * (1f - progress)).dp.toPx(), 1.5.dp.toPx(), StrokeCap.Round)
-    }
 }

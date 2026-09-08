@@ -6,6 +6,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -43,13 +44,16 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -74,6 +78,9 @@ fun CinematicCrashGameScreen(viewModel: AppViewModel, onBack: () -> Unit) {
     val goBack by rememberUpdatedState(onBack)
     val frameTime = rememberCrashFrameTime(controller, state)
     val reducedMotion = settings.reducedMotion || !settings.animations
+    val keyboard = LocalSoftwareKeyboardController.current
+    val sceneBounds = remember(controller) { mutableStateOf<Rect?>(null) }
+    val reportSceneBounds: (Rect) -> Unit = remember(sceneBounds) { { sceneBounds.value = it } }
 
     BackHandler { controller.requestLeave() }
     LaunchedEffect(controller, state.exitReady) {
@@ -83,48 +90,51 @@ fun CinematicCrashGameScreen(viewModel: AppViewModel, onBack: () -> Unit) {
         }
     }
 
-    BoxWithConstraints(
-        Modifier.fillMaxSize()
-            .background(Brush.verticalGradient(listOf(Color(0xFF0C1424), Color(0xFF070C17))))
-            .windowInsetsPadding(WindowInsets.safeDrawing)
-            .imePadding()
-    ) {
-        val landscape = maxWidth >= 600.dp && maxWidth > maxHeight
-        if (landscape) {
-            Column(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                CrashRocketHeader(balance, controller::requestLeave)
-                Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Column(Modifier.weight(1.55f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                        CrashRecentFlights(state.recentCrashes)
-                        CrashRocketScene(state, frameTime, reducedMotion, Modifier.weight(1f).fillMaxWidth())
+    Box(Modifier.fillMaxSize().background(Color(0xFF070A10))) {
+        BoxWithConstraints(
+            Modifier.fillMaxSize()
+                .background(Brush.verticalGradient(listOf(Color(0xFF0C1017), Color(0xFF070A10))))
+                .windowInsetsPadding(WindowInsets.safeDrawing)
+                .imePadding()
+        ) {
+            val landscape = maxWidth >= 600.dp && maxWidth > maxHeight
+            if (landscape) {
+                Column(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    CrashRocketHeader(balance, controller::requestLeave)
+                    Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Column(Modifier.weight(1.55f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                            CrashRecentFlights(state.recentCrashes)
+                            CrashRocketScene(state, frameTime, reducedMotion, Modifier.weight(1f).fillMaxWidth(), reportSceneBounds)
+                        }
+                        CrashFlightControls(
+                            state, balance, ready, frameTime,
+                            Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState(), enabled = state.blastFlight == null),
+                            onStake = controller::changeStake,
+                            onStart = { keyboard?.hide(); controller.start(balance) },
+                            onCollect = { controller.collect() }
+                        )
                     }
+                }
+            } else {
+                // Keep the controls reachable on small screens / with the numeric keyboard open.
+                val sceneHeight = (maxHeight - 400.dp).coerceAtLeast(200.dp)
+                Column(
+                    Modifier.fillMaxSize().verticalScroll(rememberScrollState(), enabled = state.blastFlight == null).padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    CrashRocketHeader(balance, controller::requestLeave)
+                    CrashRecentFlights(state.recentCrashes)
+                    CrashRocketScene(state, frameTime, reducedMotion, Modifier.fillMaxWidth().height(sceneHeight), reportSceneBounds)
                     CrashFlightControls(
-                        state, balance, ready, frameTime,
-                        Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()),
+                        state, balance, ready, frameTime, Modifier.fillMaxWidth(),
                         onStake = controller::changeStake,
-                        onStart = { controller.start(balance) },
+                        onStart = { keyboard?.hide(); controller.start(balance) },
                         onCollect = { controller.collect() }
                     )
                 }
             }
-        } else {
-            // Keep the controls reachable on small screens / with the numeric keyboard open.
-            val sceneHeight = (maxHeight - 400.dp).coerceAtLeast(200.dp)
-            Column(
-                Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 14.dp, vertical = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                CrashRocketHeader(balance, controller::requestLeave)
-                CrashRecentFlights(state.recentCrashes)
-                CrashRocketScene(state, frameTime, reducedMotion, Modifier.fillMaxWidth().height(sceneHeight))
-                CrashFlightControls(
-                    state, balance, ready, frameTime, Modifier.fillMaxWidth(),
-                    onStake = controller::changeStake,
-                    onStart = { controller.start(balance) },
-                    onCollect = { controller.collect() }
-                )
-            }
         }
+        CrashDestructionOverlay(state, frameTime, sceneBounds, reducedMotion, Modifier.matchParentSize())
     }
 }
 
@@ -132,15 +142,14 @@ fun CinematicCrashGameScreen(viewModel: AppViewModel, onBack: () -> Unit) {
 @Composable
 private fun rememberCrashFrameTime(controller: CrashRoundController, state: CrashUiState): State<Long> {
     val time = remember(controller) { mutableLongStateOf(SystemClock.elapsedRealtimeNanos()) }
-    LaunchedEffect(controller, state.flight, state.phase) {
+    LaunchedEffect(controller, state.flight, state.blastFlight, state.phase, state.revealStartedAtNanos) {
         time.longValue = SystemClock.elapsedRealtimeNanos()
-        val flight = state.flight ?: return@LaunchedEffect
+        if (state.flight == null && state.blastFlight == null) return@LaunchedEffect
         while (isActive) {
             // Do not mix the Choreographer frame timestamp's clock domain with elapsedRealtimeNanos.
             val now = withFrameNanos { SystemClock.elapsedRealtimeNanos() }
             time.longValue = now
             controller.tick(now)
-            if (flight.hasCrashed(now) && flight.burstProgress(now) >= 1f) break
         }
     }
     return time
@@ -246,6 +255,7 @@ private fun CrashFlightControls(
                 state.leaving -> CrashAction("CLOSING ROUND…", "Waiting for saved result", false, {})
                 state.settling -> CrashAction("SAVING RESULT…", "Please wait for confirmation", false, {})
                 state.phase == CrashPhase.PREPARING -> CrashAction("PREPARING LAUNCH…", "Securing your virtual stake", false, {})
+                state.phase == CrashPhase.CRASHED || state.phase == CrashPhase.RESETTING -> CrashAction("RESETTING FLIGHT…", "The next flight is not started automatically", false, {})
                 state.phase == CrashPhase.FLYING && state.collectedAt != null -> {
                     Surface(Modifier.fillMaxWidth().height(62.dp), shape = RoundedCornerShape(15.dp), color = CrashMint.copy(alpha = .09f), border = BorderStroke(1.dp, CrashMint.copy(alpha = .26f))) {
                         Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {

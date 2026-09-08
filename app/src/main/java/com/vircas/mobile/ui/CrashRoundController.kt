@@ -1,6 +1,7 @@
 package com.vircas.mobile.ui
 
 import com.vircas.mobile.core.game.ActiveWager
+import com.vircas.mobile.core.game.CrashBlast
 import com.vircas.mobile.core.game.CrashFlight
 import com.vircas.mobile.core.game.WagerRules
 import com.vircas.mobile.game.engines.CrashRound
@@ -15,13 +16,15 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
-internal enum class CrashPhase { READY, PREPARING, FLYING, CRASHED }
+internal enum class CrashPhase { READY, PREPARING, FLYING, CRASHED, RESETTING }
 
 internal data class CrashUiState(
     val phase: CrashPhase = CrashPhase.READY,
     val stakeText: String = "1000",
     val stake: Long = 0L,
     val flight: CrashFlight? = null,
+    val blastFlight: CrashFlight? = null,
+    val revealStartedAtNanos: Long? = null,
     val settling: Boolean = false,
     val pendingCashout: Double? = null,
     val collectedAt: Double? = null,
@@ -32,7 +35,7 @@ internal data class CrashUiState(
     val message: String = "Set your stake. The result is fixed before launch."
 ) {
     val canEditStake: Boolean get() =
-        (phase == CrashPhase.READY || phase == CrashPhase.CRASHED) && !settling && !leaving
+        phase == CrashPhase.READY && blastFlight == null && !settling && !leaving
 }
 
 /** Testable adapter: the real implementation delegates every write to AppViewModel's FIFO. */
@@ -57,6 +60,7 @@ internal class CrashRoundController(
     private var preparation: Job? = null
     private var settlement: Job? = null
     private var deadline: Job? = null
+    private var sceneReset: Job? = null
 
     fun changeStake(text: String) {
         if (state.value.canEditStake && text.length <= 15 && text.all { it in '0'..'9' }) {
@@ -73,10 +77,11 @@ internal class CrashRoundController(
             return
         }
         deadline?.cancel()
+        sceneReset?.cancel()
         armed = false
         mutableState.value = current.copy(
             phase = CrashPhase.PREPARING, stake = stake, flight = null,
-            settling = false, pendingCashout = null, collectedAt = null, payout = 0L,
+            blastFlight = null, revealStartedAtNanos = null, settling = false, pendingCashout = null, collectedAt = null, payout = 0L,
             message = "Saving your round before launch…"
         )
         preparation = scope.launch {
@@ -132,7 +137,7 @@ internal class CrashRoundController(
         val flight = current.flight ?: return
         if (current.phase != CrashPhase.FLYING || !flight.hasCrashed(atNanos)) return
         mutableState.value = current.copy(
-            phase = CrashPhase.CRASHED,
+            phase = CrashPhase.CRASHED, blastFlight = flight, revealStartedAtNanos = null,
             recentCrashes = (listOf(flight.crashPoint) + current.recentCrashes).take(8),
             message = when {
                 current.settling -> "Saving the result…"
@@ -143,6 +148,36 @@ internal class CrashRoundController(
         val active = wager
         if (active != null && !current.settling) {
             finish(active, 0.0, "Crash @ ${crashMultiplierText(flight.crashPoint)}", "No cashout before the crash", false)
+        }
+        scheduleSceneReset(flight)
+    }
+
+    private fun scheduleSceneReset(flight: CrashFlight) {
+        sceneReset?.cancel()
+        sceneReset = scope.launch {
+            awaitClock(flight.startedAtNanos, flight.durationSeconds + CrashBlast.COVER_SECONDS)
+            // The reset is visual only. Never unlock Start merely because the effect finished.
+            settlement?.join()
+            if (state.value.blastFlight !== flight || wager != null || state.value.settling) return@launch
+            val revealStarted = nowNanos()
+            val summary = if (state.value.collectedAt != null) "Cashout saved. Ready for a new flight." else "Round ended. Ready for a new flight."
+            mutableState.value = state.value.copy(
+                phase = CrashPhase.RESETTING, flight = null, stake = 0L,
+                collectedAt = null, pendingCashout = null, payout = 0L,
+                revealStartedAtNanos = revealStarted, message = summary
+            )
+            awaitClock(revealStarted, CrashBlast.REVEAL_SECONDS)
+            if (state.value.blastFlight === flight) {
+                mutableState.value = state.value.copy(phase = CrashPhase.READY, blastFlight = null, revealStartedAtNanos = null)
+            }
+        }
+    }
+
+    private suspend fun awaitClock(startedAtNanos: Long, seconds: Double) {
+        while (true) {
+            val remaining = seconds - (nowNanos() - startedAtNanos).coerceAtLeast(0L) / 1_000_000_000.0
+            if (remaining <= 0.0) return
+            delay(ceil(remaining * 1000.0).toLong().coerceAtLeast(1L))
         }
     }
 
@@ -206,7 +241,15 @@ internal class CrashRoundController(
     }
 
     fun consumeExit() {
-        mutableState.value = state.value.copy(leaving = false, exitReady = false)
+        val current = state.value
+        if (current.blastFlight != null && wager == null && !current.settling) {
+            sceneReset?.cancel()
+            mutableState.value = current.copy(
+                phase = CrashPhase.READY, flight = null, blastFlight = null, revealStartedAtNanos = null,
+                stake = 0L, collectedAt = null, pendingCashout = null, payout = 0L,
+                leaving = false, exitReady = false
+            )
+        } else mutableState.value = current.copy(leaving = false, exitReady = false)
     }
 }
 
