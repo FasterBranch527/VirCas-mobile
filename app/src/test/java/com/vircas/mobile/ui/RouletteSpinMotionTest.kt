@@ -5,7 +5,8 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class RouletteSpinMotionTest {
-    private fun delta(a: Double, b: Double) = ((a - b + 540.0) % 360.0) - 180.0
+    // Kotlin's remainder can be negative: normalize before comparing unwrapped revolutions.
+    private fun delta(a: Double, b: Double) = ((((a - b) % 360.0) + 540.0) % 360.0) - 180.0
 
     @Test fun `all pockets land at their exact rendered center across consecutive spins`() {
         var start = RouletteMotionFrame()
