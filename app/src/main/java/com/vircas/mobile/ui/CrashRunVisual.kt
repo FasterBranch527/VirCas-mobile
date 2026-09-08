@@ -16,6 +16,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -35,6 +36,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.vircas.mobile.core.game.CrashFlight
@@ -148,15 +150,16 @@ internal fun CrashRocketScene(
             Text("VIRTUAL COINS", color = CrashMuted.copy(alpha = .75f), fontSize = 8.sp, letterSpacing = 1.sp)
         }
         CrashMultiplierReadout(
-            state = state, frameTime = frameTime, compact = compact,
-            modifier = Modifier.align(if (compact) Alignment.TopStart else Alignment.TopCenter).padding(start = 18.dp, end = 18.dp, top = if (compact) 40.dp else 52.dp)
+            state = state, frameTime = frameTime,
+            fontSize = minOf(if (compact) 42f else 56f, maxWidth.value * .14f).sp,
+            modifier = Modifier.align(Alignment.TopStart).padding(start = 18.dp, end = 18.dp, top = if (compact) 40.dp else 52.dp)
         )
         FlightTimeReadout(state.flight, frameTime, Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(horizontal = 17.dp, vertical = 13.dp))
     }
 }
 
 @Composable
-private fun CrashMultiplierReadout(state: CrashUiState, frameTime: State<Long>, compact: Boolean, modifier: Modifier) {
+private fun CrashMultiplierReadout(state: CrashUiState, frameTime: State<Long>, fontSize: TextUnit, modifier: Modifier) {
     val value by remember(state.flight, frameTime) {
         derivedStateOf {
             val raw = state.flight?.visibleMultiplier(frameTime.value) ?: 1.0
@@ -165,11 +168,12 @@ private fun CrashMultiplierReadout(state: CrashUiState, frameTime: State<Long>, 
         }
     }
     val accent = if (state.phase == CrashPhase.CRASHED) CrashCoral else CrashMint
-    Column(modifier, horizontalAlignment = if (compact) Alignment.Start else Alignment.CenterHorizontally) {
+    // Reserve the right side for the rocket, including long 1000.00x flights on narrow phones.
+    Column(modifier, horizontalAlignment = Alignment.Start) {
         Text(
             crashMultiplierText(value), color = accent,
             fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold,
-            fontSize = if (compact) 42.sp else 56.sp,
+            fontSize = fontSize,
             letterSpacing = (-2).sp, maxLines = 1,
             modifier = Modifier.testTag("crash-multiplier")
         )
