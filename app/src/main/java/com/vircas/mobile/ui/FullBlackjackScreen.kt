@@ -1,24 +1,6 @@
 package com.vircas.mobile.ui
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Casino
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -27,13 +9,6 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.vircas.mobile.core.game.ActiveWager
 import com.vircas.mobile.game.engines.BlackjackHandState
 import com.vircas.mobile.game.engines.BlackjackTableEngine
@@ -46,6 +21,7 @@ private enum class FullBlackjackPhase { READY, DEALING, PLAYER_TURN, DEALER_TURN
 @Composable
 fun FullBlackjackGameScreen(viewModel: AppViewModel, onBack: () -> Unit) {
     val balance by viewModel.balance.collectAsState()
+    val settings by viewModel.settings.collectAsState()
     val scope = viewModel.roundTaskScope("blackjack")
 
     var stakeText by rememberRound(viewModel, "blackjack:stakeText") { mutableStateOf("1000") }
@@ -55,7 +31,7 @@ fun FullBlackjackGameScreen(viewModel: AppViewModel, onBack: () -> Unit) {
     var engine by rememberRound(viewModel, "blackjack:engine") { mutableStateOf<BlackjackTableEngine?>(null) }
     var round by rememberRound(viewModel, "blackjack:round") { mutableStateOf<BlackjackTableRound?>(null) }
     var phase by rememberRound(viewModel, "blackjack:phase") { mutableStateOf(FullBlackjackPhase.READY) }
-    var message by rememberRound(viewModel, "blackjack:message") { mutableStateOf("BLACKJACK PAYS 3:2 · DEALER STANDS SOFT 17") }
+    var message by rememberRound(viewModel, "blackjack:message") { mutableStateOf("WELCOME TO THE TABLE") }
     var shownCounts by rememberRound(viewModel, "blackjack:shownCounts") { mutableStateOf<List<Int>>(emptyList()) }
     var dealerShown by rememberRound(viewModel, "blackjack:dealerShown") { mutableIntStateOf(0) }
     var holeRevealed by rememberRound(viewModel, "blackjack:holeRevealed") { mutableStateOf(false) }
@@ -308,134 +284,35 @@ fun FullBlackjackGameScreen(viewModel: AppViewModel, onBack: () -> Unit) {
         }
     }
 
-    BoxWithConstraints(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(
-                Brush.radialGradient(
-                    colors = listOf(Color(0xFF18734B), Color(0xFF0B422E), Color(0xFF041C16)),
-                    radius = 1450f
-                )
-            )
+    BlackjackTableScene(
+        balance = balance,
+        round = round,
+        dealerShown = dealerShown,
+        holeRevealed = holeRevealed,
+        shownCounts = shownCounts,
+        activeIndex = if (phase == FullBlackjackPhase.PLAYER_TURN) round?.activeHandIndex ?: -1 else -1,
+        baseStake = baseStake,
+        committedStake = if (round == null) stakeText.toLongOrNull() ?: 0L else committedStake,
+        message = message,
+        reducedMotion = settings.reducedMotion || !settings.animations,
+        onBack = ::leave
     ) {
-        val currentRound = round
-        val handCount = currentRound?.hands?.size ?: 1
-        val compact = maxHeight < 710.dp || maxWidth < 360.dp
-        val dealerCardWidth = if (compact) 54.dp else 64.dp
-        val dealerCardHeight = if (compact) 78.dp else 94.dp
-        val playerCardWidth = when {
-            handCount >= 4 -> 34.dp
-            handCount == 3 -> 40.dp
-            handCount == 2 -> if (compact) 48.dp else 54.dp
-            compact -> 56.dp
-            else -> 66.dp
-        }
-        val playerCardHeight = playerCardWidth * 1.46f
-
-        BlackjackTableBackdrop()
-        Column(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 7.dp)
-        ) {
-            BlackjackTableHeader(balance, ::leave)
-
-            Box(Modifier.weight(1f).fillMaxWidth()) {
-                Column(
-                    Modifier.fillMaxSize(),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    BlackjackDealerArea(
-                        cards = currentRound?.dealer.orEmpty(),
-                        shownCount = dealerShown,
-                        holeRevealed = holeRevealed,
-                        cardWidth = dealerCardWidth,
-                        cardHeight = dealerCardHeight,
-                        compact = compact
-                    )
-
-                    Spacer(Modifier.weight(.55f))
-                    BlackjackRoundStatus(
-                        message = message,
-                        committedStake = committedStake,
-                        handCount = handCount,
-                        compact = compact
-                    )
-                    Spacer(Modifier.weight(.45f))
-
-                    if (currentRound != null) {
-                        BlackjackPlayerArea(
-                            hands = currentRound.hands,
-                            shownCounts = shownCounts,
-                            activeIndex = if (phase == FullBlackjackPhase.PLAYER_TURN) currentRound.activeHandIndex else -1,
-                            baseStake = baseStake,
-                            cardWidth = playerCardWidth,
-                            cardHeight = playerCardHeight,
-                            compact = compact
-                        )
-                    } else {
-                        Surface(
-                            shape = RoundedCornerShape(28.dp),
-                            color = Color.Black.copy(alpha = .12f),
-                            border = BorderStroke(1.dp, Color.White.copy(alpha = .05f))
-                        ) {
-                            Column(
-                                Modifier.fillMaxWidth().padding(vertical = if (compact) 18.dp else 28.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                Icon(Icons.Rounded.Casino, null, tint = ShellGold)
-                                Spacer(Modifier.height(6.dp))
-                                Text("PLACE YOUR BET", color = Color.White, fontWeight = FontWeight.Black, fontSize = 13.sp)
-                                Text("Split pairs · Double after split · 3:2 natural", color = Color.White.copy(alpha = .45f), fontSize = 9.sp)
-                            }
-                        }
-                    }
-                }
-            }
-
-            when (phase) {
-                FullBlackjackPhase.READY, FullBlackjackPhase.COMPLETE -> BlackjackBetControls(
-                    stakeText = stakeText,
-                    balance = balance,
-                    compact = compact,
-                    onStake = { stakeText = it },
-                    onDeal = ::deal
+        when (phase) {
+            FullBlackjackPhase.READY, FullBlackjackPhase.COMPLETE -> BlackjackBetControls(
+                stakeText = stakeText, balance = balance, compact = false,
+                onStake = { stakeText = it }, onDeal = ::deal
+            )
+            FullBlackjackPhase.PLAYER_TURN -> {
+                val liveRound = round
+                val liveEngine = engine
+                BlackjackActionControls(
+                    canDouble = liveRound != null && liveEngine?.canDouble(liveRound) == true && balance >= baseStake,
+                    canSplit = liveRound != null && liveEngine?.canSplit(liveRound) == true && balance >= baseStake,
+                    compact = false,
+                    onHit = ::hit, onStand = ::stand, onDouble = ::doubleDown, onSplit = ::split
                 )
-
-                FullBlackjackPhase.PLAYER_TURN -> {
-                    val liveRound = round
-                    val liveEngine = engine
-                    BlackjackActionControls(
-                        canDouble = liveRound != null && liveEngine?.canDouble(liveRound) == true && balance >= baseStake,
-                        canSplit = liveRound != null && liveEngine?.canSplit(liveRound) == true && balance >= baseStake,
-                        compact = compact,
-                        onHit = ::hit,
-                        onStand = ::stand,
-                        onDouble = ::doubleDown,
-                        onSplit = ::split
-                    )
-                }
-
-                FullBlackjackPhase.DEALING, FullBlackjackPhase.DEALER_TURN -> Surface(
-                    shape = RoundedCornerShape(22.dp),
-                    color = Color(0xE80A1211),
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = .07f))
-                ) {
-                    Row(
-                        Modifier.fillMaxWidth().height(58.dp).padding(horizontal = 16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        Icon(Icons.Rounded.Casino, null, tint = ShellGold)
-                        Spacer(Modifier.padding(horizontal = 4.dp))
-                        Text(
-                            if (phase == FullBlackjackPhase.DEALER_TURN) "DEALER IS PLAYING" else "CARDS IN MOTION",
-                            color = Color.White.copy(alpha = .74f),
-                            fontWeight = FontWeight.Black,
-                            fontSize = 11.sp
-                        )
-                    }
-                }
             }
+            FullBlackjackPhase.DEALING, FullBlackjackPhase.DEALER_TURN -> BlackjackBusyControls(phase == FullBlackjackPhase.DEALER_TURN)
         }
     }
 }
