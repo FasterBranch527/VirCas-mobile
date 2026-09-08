@@ -70,7 +70,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val saveError: StateFlow<String?> = saveErrorState
     private val roundWrites = RoundWriteQueue(
         scope = viewModelScope,
-        onFailure = ::reportError,
+        onFailure = { error -> reportError(error) },
         onIdle = { saveErrorState.value = null }
     )
 
@@ -202,14 +202,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         try { deliver() } catch (error: Exception) { Log.e("AppViewModel", "Round presentation failed", error) }
     }
 
-    private fun reportError(error: Exception) {
+    // Result.exceptionOrNull() is a Throwable, so keep the widest local-save failure type here.
+    private fun reportError(error: Throwable) {
         Log.w("AppViewModel", "Local save failed", error)
         saveErrorState.value = "Could not save local data. Please retry before continuing."
     }
 
     fun retrySaving() = viewModelScope.launch { roundWrites.retry() }
 
-    private suspend fun failedReservation(wager: ActiveWager, error: Exception) {
+    private suspend fun failedReservation(wager: ActiveWager, error: Throwable) {
         try { container.gameLedger.cancel(wager) }
         catch (saveFailure: Exception) {
             reportError(saveFailure)
