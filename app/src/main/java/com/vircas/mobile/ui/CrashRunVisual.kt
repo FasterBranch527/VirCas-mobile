@@ -1,638 +1,286 @@
 package com.vircas.mobile.ui
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.vircas.mobile.core.game.CrashFlight
+import com.vircas.mobile.core.game.CrashFlightMath
+import com.vircas.mobile.core.game.CrashTrajectory
+import java.util.Locale
 import kotlin.math.PI
-import kotlin.math.abs
-import kotlin.math.atan2
 import kotlin.math.cos
-import kotlin.math.exp
-import kotlin.math.max
-import kotlin.math.min
-import kotlin.math.pow
+import kotlin.math.floor
 import kotlin.math.sin
-import kotlin.math.sqrt
 
-private val CrashLive = Color(0xFF55EDA1)
-private val CrashLiveBright = Color(0xFFD2FFE8)
-private val CrashLiveDeep = Color(0xFF16B96E)
-private val CrashRed = Color(0xFFFF4F67)
-private val CrashRedBright = Color(0xFFFFA1AE)
-private val CrashGrid = Color(0xFF93A9A1)
+internal val CrashMint = Color(0xFF6AF4CF)
+internal val CrashCoral = Color(0xFFFF667C)
+internal val CrashPanel = Color(0xFF121B2C)
+internal val CrashMuted = Color(0xFF93A3BA)
+internal val CrashInk = Color(0xFF07111C)
 
-private val StickBody = Color(0xFFF2FFF9)
-private val StickBodyBack = Color(0xFF7CB8A3)
-private val StickJoint = Color(0xFFBAF9DF)
-private val StickHeadFill = Color(0xFF08100E)
-private val StickAccent = Color(0xFF6CFFD0)
+// Kept as the original helper for source compatibility; growth and the 1000x cap are unchanged.
+internal fun crashDisplayMultiplier(seconds: Float): Double = CrashFlightMath.multiplier(seconds.toDouble())
 
-internal fun crashDisplayMultiplier(seconds: Float): Double {
-    val t = seconds.coerceAtLeast(0f).toDouble()
-    return exp(0.105 * t + 0.0045 * t * t).coerceIn(1.0, 1000.0)
+@Composable
+internal fun CrashRocketScene(
+    state: CrashUiState,
+    frameTime: State<Long>,
+    reducedMotion: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val shape = RoundedCornerShape(26.dp)
+    val artwork = remember { RocketArtwork() }
+    val trace = remember { Path() }
+    val fill = remember { Path() }
+    val flame = remember { Path() }
+    val stars = remember {
+        List(46) { index ->
+            Star(((index * 73 + 19) % 997) / 997f, ((index * 127 + 61) % 991) / 991f, .55f + index % 3 * .25f, .12f + index % 4 * .04f)
+        }
+    }
+    BoxWithConstraints(
+        modifier.clip(shape)
+            .background(Brush.verticalGradient(listOf(Color(0xFF111D32), Color(0xFF090F1F))))
+            .border(1.dp, Color.White.copy(alpha = .07f), shape)
+            .testTag("crash-rocket-scene")
+            .semantics { contentDescription = "Rocket following the Crash flight curve" }
+    ) {
+        val compact = maxHeight < 290.dp
+        Canvas(Modifier.fillMaxSize()) {
+            if (size.width <= 0f || size.height <= 0f) return@Canvas
+            // Read the high-frequency clock in the draw phase, NOT in the screen composition.
+            val now = frameTime.value
+            val flight = state.flight
+            val seconds = flight?.visibleSeconds(now) ?: 0.0
+            val crashed = flight?.hasCrashed(now) == true
+            val flying = flight != null && !crashed
+            val burst = flight?.burstProgress(now) ?: 0f
+            val accent = if (crashed) CrashCoral else CrashMint
+            val p = CrashFlightMath.travel(seconds)
+            val normalized = CrashTrajectory.point(p)
+            val prefix = CrashTrajectory.prefixControl(p)
+            val start = Offset((CrashTrajectory.start.x * size.width).toFloat(), (CrashTrajectory.start.y * size.height).toFloat())
+            val endpoint = Offset((normalized.x * size.width).toFloat(), (normalized.y * size.height).toFloat())
+            val control = Offset((prefix.x * size.width).toFloat(), (prefix.y * size.height).toFloat())
+            val angle = (CrashTrajectory.headingRadians(p, size.width.toDouble(), size.height.toDouble()) * 180.0 / PI).toFloat()
+
+            drawSpace(stars)
+            drawFlightGrid(start.y)
+            trace.reset()
+            trace.moveTo(start.x, start.y)
+            trace.quadraticBezierTo(control.x, control.y, endpoint.x, endpoint.y)
+            fill.reset()
+            fill.moveTo(start.x, start.y)
+            fill.quadraticBezierTo(control.x, control.y, endpoint.x, endpoint.y)
+            fill.lineTo(endpoint.x, start.y)
+            fill.close()
+            drawPath(fill, Brush.verticalGradient(listOf(accent.copy(alpha = .14f), accent.copy(alpha = .012f)), 0f, start.y))
+            drawPath(trace, accent.copy(alpha = .045f), style = Stroke(15.dp.toPx(), cap = StrokeCap.Round))
+            drawPath(trace, accent.copy(alpha = .12f), style = Stroke(7.dp.toPx(), cap = StrokeCap.Round))
+            drawPath(trace, accent, style = Stroke(2.5.dp.toPx(), cap = StrokeCap.Round))
+            drawCircle(accent.copy(alpha = .28f), 4.dp.toPx(), start)
+            drawCircle(accent, 1.7.dp.toPx(), start)
+
+            val rocketScale = density * (size.width / density / 360f).coerceIn(.72f, 1.08f)
+            val rocketAlpha = if (crashed) (1f - burst * 2.8f).coerceAtLeast(0f) else 1f
+            if (rocketAlpha > 0f) {
+                withTransform({
+                    translate(endpoint.x, endpoint.y)
+                    rotate(angle, Offset.Zero)
+                    scale(rocketScale, rocketScale, Offset.Zero)
+                }) {
+                    drawRocket(artwork, flame, seconds, flying, reducedMotion, rocketAlpha)
+                }
+            }
+            if (crashed) {
+                if (!reducedMotion && burst < 1f) drawRocketBurst(endpoint, burst)
+                drawCircle(CrashCoral.copy(alpha = .18f), 7.dp.toPx(), endpoint)
+                drawCircle(CrashCoral, 2.8.dp.toPx(), endpoint)
+            }
+        }
+
+        Row(
+            Modifier.align(Alignment.TopStart).fillMaxWidth().padding(16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            val badge = when (state.phase) {
+                CrashPhase.READY -> "READY TO FLY"
+                CrashPhase.PREPARING -> "PREPARING"
+                CrashPhase.FLYING -> "● LIVE FLIGHT"
+                CrashPhase.CRASHED -> "SIGNAL LOST"
+            }
+            Text(badge, color = if (state.phase == CrashPhase.CRASHED) CrashCoral else CrashMint, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+            Text("VIRTUAL COINS", color = CrashMuted.copy(alpha = .75f), fontSize = 8.sp, letterSpacing = 1.sp)
+        }
+        CrashMultiplierReadout(
+            state = state, frameTime = frameTime, compact = compact,
+            modifier = Modifier.align(if (compact) Alignment.TopStart else Alignment.TopCenter).padding(start = 18.dp, end = 18.dp, top = if (compact) 40.dp else 52.dp)
+        )
+        FlightTimeReadout(state.flight, frameTime, Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(horizontal = 17.dp, vertical = 13.dp))
+    }
 }
 
 @Composable
-fun CrashRunScene(
-    multiplier: Double,
-    elapsedSeconds: Float,
-    running: Boolean,
-    crashed: Boolean,
-    crashProgress: Float,
-    cashoutAt: Double?,
-    modifier: Modifier = Modifier
-) {
-    val accent = if (crashed) CrashRed else CrashLive
-    Box(
-        modifier.background(
-            Brush.verticalGradient(
-                listOf(Color(0xFF081712), Color(0xFF05100D), Color(0xFF020706))
-            ),
-            RoundedCornerShape(28.dp)
-        )
-    ) {
-        Canvas(Modifier.fillMaxSize()) {
-            val geometry = buildCrashGeometry(elapsedSeconds)
-            drawCrashAtmosphere(elapsedSeconds, geometry, crashed)
-            drawCrashGrid(elapsedSeconds)
-            drawCrashTrail(geometry, accent, crashed)
-            drawTrackParticles(geometry, elapsedSeconds, accent)
-            drawCrashRunner(
-                point = geometry.end,
-                tangentDegrees = geometry.angleDegrees,
-                elapsedSeconds = elapsedSeconds,
-                running = running,
-                crashed = crashed,
-                crashProgress = crashProgress
-            )
-            if (crashed) drawCrashBurst(geometry.end, crashProgress)
+private fun CrashMultiplierReadout(state: CrashUiState, frameTime: State<Long>, compact: Boolean, modifier: Modifier) {
+    val value by remember(state.flight, frameTime) {
+        derivedStateOf {
+            val raw = state.flight?.visibleMultiplier(frameTime.value) ?: 1.0
+            // Do not round a live 1.999x up to a displayed 2.00x before that time exists.
+            floor(raw * 100.0 + 1e-8) / 100.0
         }
-
-        Column(Modifier.align(Alignment.TopStart).padding(start = 18.dp, top = 15.dp)) {
-            Text(
-                text = "${"%.2f".format(multiplier)}x",
-                color = accent,
-                fontSize = 45.sp,
-                lineHeight = 44.sp,
-                fontWeight = FontWeight.Black,
-                letterSpacing = (-1.2).sp
-            )
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Surface(modifier = Modifier.size(7.dp), shape = CircleShape, color = accent) {}
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    when {
-                        crashed -> "CRASHED"
-                        running && cashoutAt != null -> "ROUND LIVE · PAYOUT LOCKED"
-                        running -> "RUNNING THE CURVE"
-                        else -> "READY"
-                    },
-                    color = Color.White.copy(alpha = .60f),
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.Black,
-                    letterSpacing = .8.sp
-                )
-            }
-        }
-
-        if (cashoutAt != null) {
-            Surface(
-                modifier = Modifier.align(Alignment.TopEnd).padding(14.dp),
-                shape = RoundedCornerShape(15.dp),
-                color = CrashLive.copy(alpha = .11f),
-                border = BorderStroke(1.dp, CrashLive.copy(alpha = .36f))
-            ) {
-                Column(
-                    Modifier.padding(horizontal = 11.dp, vertical = 7.dp),
-                    horizontalAlignment = Alignment.End
-                ) {
-                    Text("LOCKED", color = CrashLive, fontSize = 8.sp, fontWeight = FontWeight.Black)
-                    Text("${"%.2f".format(cashoutAt)}x", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Black)
-                }
-            }
-        }
-
+    }
+    val accent = if (state.phase == CrashPhase.CRASHED) CrashCoral else CrashMint
+    Column(modifier, horizontalAlignment = if (compact) Alignment.Start else Alignment.CenterHorizontally) {
         Text(
-            text = "PROVABLY FAIR · RESULT FIXED BEFORE RUN",
-            modifier = Modifier.align(Alignment.BottomStart).padding(start = 17.dp, bottom = 12.dp),
-            color = Color.White.copy(alpha = .27f),
-            fontSize = 8.sp,
-            fontWeight = FontWeight.Bold
+            crashMultiplierText(value), color = accent,
+            fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold,
+            fontSize = if (compact) 42.sp else 56.sp,
+            letterSpacing = (-2).sp, maxLines = 1,
+            modifier = Modifier.testTag("crash-multiplier")
         )
+        Text(
+            when {
+                state.settling && state.pendingCashout != null -> "CONFIRMING CASHOUT…"
+                state.collectedAt != null -> "COLLECTED AT ${crashMultiplierText(state.collectedAt)}"
+                state.phase == CrashPhase.CRASHED -> "FLIGHT ENDED"
+                state.phase == CrashPhase.FLYING -> "FOLLOW THE FLIGHT"
+                else -> "YOUR NEXT FLIGHT STARTS HERE"
+            },
+            color = if (state.collectedAt != null) CrashMint else CrashMuted,
+            fontSize = 9.sp, fontWeight = FontWeight.Medium, letterSpacing = .6.sp
+        )
+    }
+}
 
-        if (crashed) {
-            Surface(
-                modifier = Modifier.align(Alignment.BottomEnd).padding(end = 13.dp, bottom = 11.dp),
-                shape = RoundedCornerShape(13.dp),
-                color = CrashRed.copy(alpha = .13f),
-                border = BorderStroke(1.dp, CrashRed.copy(alpha = .30f))
-            ) {
-                Text(
-                    "RUN ENDED",
-                    Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
-                    color = CrashRed,
-                    fontSize = 8.sp,
-                    fontWeight = FontWeight.Black,
-                    textAlign = TextAlign.Center
-                )
+@Composable
+private fun FlightTimeReadout(flight: CrashFlight?, frameTime: State<Long>, modifier: Modifier) {
+    val tenths by remember(flight, frameTime) { derivedStateOf { ((flight?.visibleSeconds(frameTime.value) ?: 0.0) * 10.0).toInt() } }
+    Row(modifier, horizontalArrangement = Arrangement.SpaceBetween) {
+        Text("0s  /  FLIGHT TIMELINE", color = CrashMuted.copy(alpha = .55f), fontSize = 8.sp, letterSpacing = .8.sp)
+        Text(String.format(Locale.US, "%.1fs", tenths / 10.0), color = CrashMuted, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+    }
+}
+
+private data class Star(val x: Float, val y: Float, val radius: Float, val alpha: Float)
+
+private fun DrawScope.drawSpace(stars: List<Star>) {
+    drawCircle(
+        Brush.radialGradient(listOf(Color(0xFF283A68).copy(alpha = .22f), Color.Transparent), Offset(size.width * .82f, size.height * .18f), size.width * .63f),
+        size.width * .63f, Offset(size.width * .82f, size.height * .18f)
+    )
+    stars.forEach { star -> drawCircle(Color.White.copy(alpha = star.alpha), star.radius.dp.toPx(), Offset(size.width * star.x, size.height * star.y)) }
+    drawCircle(Color(0xFF647BBA).copy(alpha = .035f), size.width * .32f, Offset(size.width * 1.08f, size.height * .13f), style = Stroke(1.dp.toPx()))
+    drawCircle(Color(0xFF647BBA).copy(alpha = .035f), size.width * .38f, Offset(size.width * 1.08f, size.height * .13f), style = Stroke(1.dp.toPx()))
+}
+
+private fun DrawScope.drawFlightGrid(baseline: Float) {
+    val grid = Color(0xFFB0BED5).copy(alpha = .055f)
+    for (index in 1..5) {
+        val x = size.width * index / 6f
+        drawLine(grid, Offset(x, size.height * .30f), Offset(x, baseline), .7.dp.toPx())
+    }
+    for (index in 0..3) {
+        val y = baseline - size.height * .14f * index
+        drawLine(grid, Offset(size.width * .06f, y), Offset(size.width * .95f, y), .7.dp.toPx())
+    }
+}
+
+/** Cached vector silhouette. Its engine nozzle is (0, 0), exactly the endpoint of the graph. */
+private class RocketArtwork {
+    val body = Path().apply {
+        moveTo(2f, -6f)
+        cubicTo(16f, -11f, 33f, -11f, 46f, 0f)
+        cubicTo(33f, 11f, 16f, 11f, 2f, 6f)
+        close()
+    }
+    val upperFin = Path().apply {
+        moveTo(5f, -6f); lineTo(13f, -7f); lineTo(7f, -16f); lineTo(-3f, -17f); lineTo(-1f, -8f); close()
+    }
+    val lowerFin = Path().apply {
+        moveTo(5f, 6f); lineTo(13f, 7f); lineTo(7f, 16f); lineTo(-3f, 17f); lineTo(-1f, 8f); close()
+    }
+    val bodyBrush = Brush.linearGradient(listOf(Color(0xFFF4F8FF), Color(0xFFD9E4F5), Color(0xFF8299BA)), Offset(16f, -9f), Offset(20f, 10f))
+}
+
+private fun DrawScope.drawRocket(art: RocketArtwork, flame: Path, seconds: Double, flying: Boolean, reducedMotion: Boolean, alpha: Float) {
+    if (flying) {
+        val pulse = if (reducedMotion) 0f else sin(seconds * 15.0).toFloat() * 2f + sin(seconds * 23.0).toFloat()
+        val length = 27f + pulse
+        drawCircle(Brush.radialGradient(listOf(Color(0xFFFFBA69).copy(alpha = .18f * alpha), Color.Transparent), Offset(-8f, 0f), 25f), 25f, Offset(-8f, 0f))
+        flame.reset()
+        flame.moveTo(1f, -4.5f)
+        flame.cubicTo(-8f, -7f, -length * .75f, -3f, -length, 0f)
+        flame.cubicTo(-length * .75f, 3f, -8f, 7f, 1f, 4.5f)
+        flame.close()
+        drawPath(flame, Brush.horizontalGradient(listOf(Color(0xFFFF6B55).copy(alpha = .12f * alpha), Color(0xFFFFAC5E).copy(alpha = alpha), Color(0xFFFFF0BF).copy(alpha = alpha)), -length, 1f))
+        drawLine(Color(0xFFFFF5D2).copy(alpha = .9f * alpha), Offset(-13f, 0f), Offset(1f, 0f), 3f, StrokeCap.Round)
+        if (!reducedMotion) {
+            repeat(6) { index ->
+                val age = ((seconds * .85 + index / 6.0) % 1.0).toFloat()
+                val fade = sin(age * PI).toFloat().coerceAtLeast(0f) * .4f * alpha
+                drawCircle(Color(0xFFFFC886).copy(alpha = fade), (1f - age) * 1.3f + .3f, Offset(-9f - age * 49f, sin(index * 2.4).toFloat() * age * 7f))
             }
         }
     }
+    drawPath(art.upperFin, Color(0xFF7779BD).copy(alpha = alpha))
+    drawPath(art.lowerFin, Color(0xFFAEA2F8).copy(alpha = alpha))
+    drawRoundRect(Color(0xFF52627E).copy(alpha = alpha), Offset(-2f, -4.5f), Size(7f, 9f), CornerRadius(2f))
+    drawPath(art.body, art.bodyBrush, alpha = alpha)
+    drawPath(art.body, Color.White.copy(alpha = .52f * alpha), style = Stroke(.7f))
+    drawLine(Color.White.copy(alpha = .75f * alpha), Offset(9f, -4f), Offset(21f, -5.5f), 1f, StrokeCap.Round)
+    drawCircle(Color(0xFF657BA0).copy(alpha = alpha), 6.2f, Offset(28f, 0f))
+    drawCircle(Color(0xFF172E4A).copy(alpha = alpha), 4.7f, Offset(28f, 0f))
+    drawCircle(Color(0xFF6DE3F0).copy(alpha = alpha), 3.5f, Offset(28f, 0f))
+    drawCircle(Color.White.copy(alpha = .82f * alpha), 1.15f, Offset(29f, -1.3f))
+    drawLine(Color(0xFF8BA0C0).copy(alpha = .65f * alpha), Offset(8f, -5f), Offset(8f, 5f), .8f)
 }
 
-private data class CrashGeometry(
-    val path: Path,
-    val fillPath: Path,
-    val start: Offset,
-    val end: Offset,
-    val previous: Offset,
-    val angleDegrees: Float
-)
-
-private fun DrawScope.buildCrashGeometry(elapsedSeconds: Float): CrashGeometry {
-    val tNow = elapsedSeconds.coerceAtLeast(0f)
-    val left = size.width * .045f
-    val baseline = size.height * .86f
-    val xSpeed = size.width * .155f
-
-    fun worldLift(t: Float): Float = size.height * (.043f * t + .0108f * t * t)
-
-    val rawEndX = left + tNow * xSpeed
-    val rawEndY = baseline - worldLift(tNow)
-    val cameraX = max(0f, rawEndX - size.width * .72f)
-    val cameraY = max(0f, size.height * .22f - rawEndY)
-
-    val samples = max(36, min(150, (tNow * 18f).toInt() + 36))
-    val path = Path()
-    val fill = Path()
-    var first = Offset(left - cameraX, baseline + cameraY)
-    var previous = first
-    var end = first
-
-    for (index in 0..samples) {
-        val fraction = index / samples.toFloat()
-        val t = tNow * fraction
-        val point = Offset(
-            x = left + t * xSpeed - cameraX,
-            y = baseline - worldLift(t) + cameraY
-        )
-        if (index == 0) {
-            path.moveTo(point.x, point.y)
-            fill.moveTo(point.x, size.height * .94f)
-            fill.lineTo(point.x, point.y)
-            first = point
-        } else {
-            path.lineTo(point.x, point.y)
-            fill.lineTo(point.x, point.y)
-        }
-        previous = end
-        end = point
-    }
-
-    fill.lineTo(end.x, size.height * .94f)
-    fill.lineTo(first.x, size.height * .94f)
-    fill.close()
-
-    val angle = if (tNow < .04f) {
-        -3f
-    } else {
-        Math.toDegrees(
-            atan2((end.y - previous.y).toDouble(), (end.x - previous.x).toDouble())
-        ).toFloat().coerceIn(-47f, -2f)
-    }
-
-    return CrashGeometry(path, fill, first, end, previous, angle)
-}
-
-private fun DrawScope.drawCrashAtmosphere(
-    elapsedSeconds: Float,
-    geometry: CrashGeometry,
-    crashed: Boolean
-) {
-    val speed = (elapsedSeconds / 4.5f).coerceIn(0f, 1f)
-    val accent = if (crashed) CrashRed else CrashLive
-
-    drawRect(
-        brush = Brush.verticalGradient(
-            listOf(Color.White.copy(alpha = .015f), Color.Transparent, accent.copy(alpha = .014f)),
-            startY = 0f,
-            endY = size.height
-        )
-    )
-
-    repeat(10) { index ->
-        val drift = (elapsedSeconds * (52f + index * 4.7f)) % (size.width * 1.35f)
-        val x = size.width * 1.15f - drift
-        val y = size.height * (.22f + (index % 7) * .095f)
-        val length = size.width * (.055f + speed * .07f)
-        drawLine(
-            color = Color.White.copy(alpha = .015f + speed * .018f),
-            start = Offset(x, y),
-            end = Offset(x - length, y + length * .06f),
-            strokeWidth = 1.2f + speed * .5f,
-            cap = StrokeCap.Round
-        )
-    }
-
-    drawCircle(
-        brush = Brush.radialGradient(
-            listOf(accent.copy(alpha = .052f), accent.copy(alpha = .010f), Color.Transparent),
-            center = geometry.end,
-            radius = size.minDimension * .058f
-        ),
-        radius = size.minDimension * .058f,
-        center = geometry.end
-    )
-}
-
-private fun DrawScope.drawCrashGrid(elapsedSeconds: Float) {
-    val spacingX = max(44f, size.width / 8.5f)
-    val spacingY = spacingX * .76f
-    val driftX = (elapsedSeconds * 31f) % spacingX
-    val driftY = (elapsedSeconds * 7f) % spacingY
-
-    var x = -spacingX + driftX
-    while (x < size.width + spacingX) {
-        drawLine(
-            CrashGrid.copy(alpha = .045f),
-            Offset(x, size.height * .08f),
-            Offset(x - size.width * .075f, size.height),
-            strokeWidth = 1f
-        )
-        x += spacingX
-    }
-
-    var y = size.height * .13f + driftY
-    while (y < size.height) {
-        drawLine(
-            CrashGrid.copy(alpha = .045f),
-            Offset(0f, y),
-            Offset(size.width, y),
-            strokeWidth = 1f
-        )
-        y += spacingY
+private fun DrawScope.drawRocketBurst(point: Offset, progress: Float) {
+    val fade = (1f - progress) * (1f - progress)
+    val expansion = 1f - (1f - progress) * (1f - progress)
+    val radius = (5f + expansion * 49f).dp.toPx()
+    drawCircle(Brush.radialGradient(listOf(CrashCoral.copy(alpha = .22f * fade), Color.Transparent), point, radius), radius, point)
+    drawCircle(CrashCoral.copy(alpha = .5f * fade), radius * .8f, point, style = Stroke(1.4.dp.toPx()))
+    repeat(12) { index ->
+        val angle = index * PI * 2.0 / 12.0
+        val direction = Offset(cos(angle).toFloat(), sin(angle).toFloat())
+        val distance = radius * (.66f + (index % 3) * .14f)
+        val tail = point + direction * distance
+        drawLine(Color(0xFFFFCAB1).copy(alpha = .85f * fade), tail, tail + direction * (3f + 6f * (1f - progress)).dp.toPx(), 1.5.dp.toPx(), StrokeCap.Round)
     }
 }
-
-private fun DrawScope.drawCrashTrail(geometry: CrashGeometry, accent: Color, crashed: Boolean) {
-    val hot = if (crashed) CrashRedBright else CrashLiveBright
-
-    drawPath(
-        geometry.fillPath,
-        brush = Brush.verticalGradient(
-            listOf(accent.copy(alpha = .070f), accent.copy(alpha = .016f), Color.Transparent),
-            startY = geometry.end.y,
-            endY = size.height * .94f
-        )
-    )
-    drawPath(geometry.path, Color.Black.copy(alpha = .30f), style = Stroke(16f, cap = StrokeCap.Round))
-    drawPath(geometry.path, accent.copy(alpha = .10f), style = Stroke(12f, cap = StrokeCap.Round))
-    drawPath(geometry.path, accent.copy(alpha = .28f), style = Stroke(7f, cap = StrokeCap.Round))
-    drawPath(
-        geometry.path,
-        brush = Brush.linearGradient(
-            listOf(CrashLiveDeep.copy(alpha = .52f), accent, hot),
-            start = geometry.start,
-            end = geometry.end
-        ),
-        style = Stroke(3.6f, cap = StrokeCap.Round)
-    )
-
-    drawCircle(accent.copy(alpha = .14f), radius = 6.4f, center = geometry.end)
-    drawCircle(hot, radius = 2.3f, center = geometry.end)
-}
-
-private fun DrawScope.drawTrackParticles(
-    geometry: CrashGeometry,
-    elapsedSeconds: Float,
-    accent: Color
-) {
-    val tangent = normalize(geometry.end - geometry.previous)
-    val up = Offset(tangent.y, -tangent.x)
-    repeat(7) { index ->
-        val phase = ((elapsedSeconds * (1.0f + index * .09f) + index * .61f) % 1.4f) / 1.4f
-        val distance = 8f + phase * 70f
-        val lift = sin(index * 1.91f + elapsedSeconds * 3.1f) * 5f + phase * 9f
-        val particle = geometry.end - tangent * distance + up * lift
-        drawCircle(
-            accent.copy(alpha = (1f - phase) * .18f),
-            radius = .9f + (1f - phase) * 1.5f,
-            center = particle
-        )
-    }
-}
-
-private data class FootState(val x: Float, val lift: Float, val support: Boolean)
-
-private data class RunnerPose(
-    val ground: Offset,
-    val up: Offset,
-    val bodyUp: Offset,
-    val hip: Offset,
-    val chest: Offset,
-    val neck: Offset,
-    val head: Offset,
-    val kneeFront: Offset,
-    val kneeBack: Offset,
-    val footFront: Offset,
-    val footBack: Offset,
-    val elbowFront: Offset,
-    val elbowBack: Offset,
-    val handFront: Offset,
-    val handBack: Offset,
-    val frontSupport: Boolean
-)
-
-private fun stickFootState(phaseInput: Float): FootState {
-    val twoPi = (PI * 2.0).toFloat()
-    var phase = phaseInput % twoPi
-    if (phase < 0f) phase += twoPi
-    val stride = 17f
-
-    return if (phase < PI.toFloat()) {
-        val u = phase / PI.toFloat()
-        val eased = u * u * (3f - 2f * u)
-        val x = -stride + stride * 2f * eased
-        val lift = sin(phase).coerceAtLeast(0f).pow(1.35f) * 11f
-        FootState(x, lift, false)
-    } else {
-        val u = (phase - PI.toFloat()) / PI.toFloat()
-        val x = stride - stride * 2f * u
-        FootState(x, 0f, true)
-    }
-}
-
-private fun DrawScope.drawCrashRunner(
-    point: Offset,
-    tangentDegrees: Float,
-    elapsedSeconds: Float,
-    running: Boolean,
-    crashed: Boolean,
-    crashProgress: Float
-) {
-    val scale = (size.minDimension / 430f).coerceIn(1.30f, 2.0f)
-    val p = crashProgress.coerceIn(0f, 1f)
-    val baseAngle = tangentDegrees * (PI / 180.0).toFloat()
-    val baseGround = normalize(Offset(cos(baseAngle), sin(baseAngle)))
-    val baseSlopeUp = normalize(Offset(baseGround.y, -baseGround.x))
-
-    val fallPoint = if (crashed) {
-        point + Offset(64f * scale * p, 116f * scale * p.pow(1.55f))
-    } else {
-        point
-    }
-    val tumbleRadians = if (crashed) (p * 260f) * (PI / 180.0).toFloat() else 0f
-    val ground = rotateVector(baseGround, tumbleRadians)
-    val slopeUp = rotateVector(baseSlopeUp, tumbleRadians)
-
-    val cadence = 8.2f + min(4.3f, elapsedSeconds * .34f)
-    val cycle = elapsedSeconds * cadence
-    val frontState = stickFootState(cycle)
-    val backState = stickFootState(cycle + PI.toFloat())
-    val supportX = if (frontState.support) frontState.x else backState.x
-
-    val upright = Offset(0f, -1f)
-    val climbLean = ((-tangentDegrees) / 47f).coerceIn(0f, 1f)
-    val bodyUpBase = normalize(upright * .91f + baseSlopeUp * .09f + baseGround * (.045f + climbLean * .04f))
-    val bodyUp = rotateVector(bodyUpBase, tumbleRadians)
-
-    // The curve ends under the support foot. The airborne foot may reach slightly ahead,
-    // which makes the runner lead the graph naturally instead of being dragged by it.
-    val anchor = fallPoint - ground * (supportX * scale)
-    val pose = makeStickPose(
-        anchor = anchor,
-        ground = ground,
-        slopeUp = slopeUp,
-        bodyUp = bodyUp,
-        cycle = cycle,
-        scale = scale,
-        animated = running || crashed
-    )
-    val fade = if (crashed) 1f - p * .45f else 1f
-
-    val shadowCenter = fallPoint - slopeUp * (1.0f * scale)
-    drawLine(
-        Color.Black.copy(alpha = .31f * fade),
-        shadowCenter - ground * (15f * scale),
-        shadowCenter + ground * (15f * scale),
-        5.0f * scale,
-        cap = StrokeCap.Round
-    )
-
-    drawStickRunner(pose, scale, fade, crashed)
-
-    if (running && !crashed) {
-        drawFootSparks(pose, cycle, scale)
-    }
-}
-
-private fun makeStickPose(
-    anchor: Offset,
-    ground: Offset,
-    slopeUp: Offset,
-    bodyUp: Offset,
-    cycle: Float,
-    scale: Float,
-    animated: Boolean
-): RunnerPose {
-    val front = if (animated) stickFootState(cycle) else FootState(7f, 0f, true)
-    val back = if (animated) stickFootState(cycle + PI.toFloat()) else FootState(-8f, 5f, false)
-
-    val footFront = anchor + ground * (front.x * scale) + slopeUp * (front.lift * scale)
-    val footBack = anchor + ground * (back.x * scale) + slopeUp * (back.lift * scale)
-
-    val contactBlend = abs(sin(cycle)).coerceIn(0f, 1f)
-    val bob = if (animated) (1.0f - contactBlend) * 1.4f * scale else 0f
-    val hip = anchor + bodyUp * (38f * scale) + slopeUp * bob
-    val chest = hip + bodyUp * (25f * scale) + ground * (4.5f * scale)
-    val neck = chest + bodyUp * (8f * scale) + ground * (1.0f * scale)
-    val head = neck + bodyUp * (9.5f * scale) + ground * (2.2f * scale)
-
-    fun kneeFor(foot: Offset, state: FootState, frontLeg: Boolean): Offset {
-        val middle = lerpOffset(hip, foot, .53f)
-        val forwardBend = if (frontLeg) 1f else .78f
-        val bend = if (state.support) 4.2f else 8.6f + state.lift * .22f
-        return middle + ground * (bend * forwardBend * scale) + slopeUp * (2.2f * scale)
-    }
-
-    val kneeFront = kneeFor(footFront, front, true)
-    val kneeBack = kneeFor(footBack, back, false)
-
-    val armSwing = if (animated) sin(cycle + PI.toFloat()) else -.25f
-    val elbowFront = chest - bodyUp * (9f * scale) + ground * (armSwing * 12f * scale) + slopeUp * (2.2f * scale)
-    val handFront = elbowFront - bodyUp * (8.5f * scale) + ground * (armSwing * 6.5f * scale)
-    val elbowBack = chest - bodyUp * (9f * scale) - ground * (armSwing * 11f * scale) + slopeUp * (1.5f * scale)
-    val handBack = elbowBack - bodyUp * (8f * scale) - ground * (armSwing * 6f * scale)
-
-    return RunnerPose(
-        ground = ground,
-        up = slopeUp,
-        bodyUp = bodyUp,
-        hip = hip,
-        chest = chest,
-        neck = neck,
-        head = head,
-        kneeFront = kneeFront,
-        kneeBack = kneeBack,
-        footFront = footFront,
-        footBack = footBack,
-        elbowFront = elbowFront,
-        elbowBack = elbowBack,
-        handFront = handFront,
-        handBack = handBack,
-        frontSupport = front.support
-    )
-}
-
-private fun DrawScope.drawStickRunner(
-    pose: RunnerPose,
-    scale: Float,
-    fade: Float,
-    crashed: Boolean
-) {
-    val front = (if (crashed) CrashRedBright else StickBody).copy(alpha = fade)
-    val back = (if (crashed) CrashRed.copy(alpha = .62f) else StickBodyBack.copy(alpha = .58f * fade))
-    val joint = (if (crashed) CrashRedBright else StickJoint).copy(alpha = .80f * fade)
-    val accent = (if (crashed) CrashRedBright else StickAccent).copy(alpha = fade)
-
-    // Rear limbs first: still readable, but the front side clearly owns the silhouette.
-    drawStickLimb(pose.hip, pose.kneeBack, pose.footBack, back, scale, 4.0f)
-    drawStickFoot(pose.footBack, pose.ground, pose.up, back, scale)
-    drawStickLimb(pose.chest, pose.elbowBack, pose.handBack, back, scale, 3.4f)
-
-    // Spine has two widths: a dark under-stroke keeps it crisp over the neon curve.
-    drawLine(Color.Black.copy(alpha = .52f * fade), pose.hip, pose.chest, 7.0f * scale, cap = StrokeCap.Round)
-    drawLine(front, pose.hip, pose.chest, 4.5f * scale, cap = StrokeCap.Round)
-    drawLine(front, pose.chest, pose.neck, 3.8f * scale, cap = StrokeCap.Round)
-
-    // Front limbs.
-    drawStickLimb(pose.hip, pose.kneeFront, pose.footFront, front, scale, 4.4f)
-    drawStickFoot(pose.footFront, pose.ground, pose.up, accent, scale)
-    drawStickLimb(pose.chest, pose.elbowFront, pose.handFront, front, scale, 3.7f)
-
-    // Subtle joints make the motion easy to read without turning the character into a puppet.
-    drawCircle(joint, 2.1f * scale, pose.kneeFront)
-    drawCircle(back.copy(alpha = .70f), 1.8f * scale, pose.kneeBack)
-    drawCircle(joint, 1.75f * scale, pose.elbowFront)
-    drawCircle(back.copy(alpha = .65f), 1.55f * scale, pose.elbowBack)
-
-    // Classic faceless stickman head: dark center, clean luminous outline, zero facial detail.
-    drawCircle(Color.Black.copy(alpha = .64f * fade), 9.2f * scale, pose.head)
-    drawCircle(StickHeadFill.copy(alpha = fade), 7.6f * scale, pose.head)
-    drawCircle(front, 7.6f * scale, pose.head, style = Stroke(width = 2.5f * scale))
-
-    // Tiny shoulder and hip accents visually lock the skeleton together during fast motion.
-    drawCircle(accent.copy(alpha = .66f), 2.2f * scale, pose.chest)
-    drawCircle(accent.copy(alpha = .42f), 1.9f * scale, pose.hip)
-}
-
-private fun DrawScope.drawStickLimb(
-    start: Offset,
-    joint: Offset,
-    end: Offset,
-    color: Color,
-    scale: Float,
-    width: Float
-) {
-    val under = Color.Black.copy(alpha = .42f * color.alpha)
-    drawLine(under, start, joint, (width + 2.2f) * scale, cap = StrokeCap.Round)
-    drawLine(under, joint, end, (width + 1.8f) * scale, cap = StrokeCap.Round)
-    drawLine(color, start, joint, width * scale, cap = StrokeCap.Round)
-    drawLine(color, joint, end, (width - .45f) * scale, cap = StrokeCap.Round)
-}
-
-private fun DrawScope.drawStickFoot(
-    foot: Offset,
-    ground: Offset,
-    up: Offset,
-    color: Color,
-    scale: Float
-) {
-    val heel = foot - ground * (2.5f * scale) + up * (.7f * scale)
-    val toe = foot + ground * (7.2f * scale)
-    drawLine(Color.Black.copy(alpha = .46f * color.alpha), heel, toe, 5.7f * scale, cap = StrokeCap.Round)
-    drawLine(color, heel, toe, 3.1f * scale, cap = StrokeCap.Round)
-}
-
-private fun DrawScope.drawFootSparks(pose: RunnerPose, cycle: Float, scale: Float) {
-    val contact = if (pose.frontSupport) pose.footFront else pose.footBack
-    val pulse = (.55f + abs(cos(cycle)) * .45f).coerceIn(0f, 1f)
-    repeat(4) { index ->
-        val back = pose.ground * ((4f + index * 4.4f) * scale)
-        val lift = pose.up * ((index % 2 + 1) * 1.8f * scale)
-        drawCircle(
-            CrashLiveBright.copy(alpha = (.23f - index * .038f) * pulse),
-            radius = (1.15f + index * .18f) * scale,
-            center = contact - back + lift
-        )
-    }
-}
-
-private fun DrawScope.drawCrashBurst(point: Offset, crashProgress: Float) {
-    val p = crashProgress.coerceIn(0f, 1f)
-    val radius = 12f + 66f * p
-    drawCircle(CrashRed.copy(alpha = .18f * (1f - p)), radius = radius, center = point)
-    drawCircle(CrashRedBright.copy(alpha = .68f * (1f - p * .55f)), radius = 4f + 7f * (1f - p), center = point)
-
-    repeat(14) { index ->
-        val angle = index / 14.0 * PI * 2.0 + p * .7
-        val startRadius = 7f + 11f * p
-        val endRadius = 13f + 55f * p
-        val start = Offset(
-            point.x + cos(angle).toFloat() * startRadius,
-            point.y + sin(angle).toFloat() * startRadius
-        )
-        val end = Offset(
-            point.x + cos(angle).toFloat() * endRadius,
-            point.y + sin(angle).toFloat() * endRadius
-        )
-        drawLine(
-            CrashRedBright.copy(alpha = .72f * (1f - p)),
-            start,
-            end,
-            strokeWidth = 1.8f + (index % 3) * .45f,
-            cap = StrokeCap.Round
-        )
-    }
-}
-
-private fun normalize(vector: Offset): Offset {
-    val length = sqrt(vector.x * vector.x + vector.y * vector.y).coerceAtLeast(.001f)
-    return Offset(vector.x / length, vector.y / length)
-}
-
-private fun rotateVector(vector: Offset, radians: Float): Offset {
-    if (radians == 0f) return vector
-    val c = cos(radians)
-    val s = sin(radians)
-    return Offset(vector.x * c - vector.y * s, vector.x * s + vector.y * c)
-}
-
-private fun lerpOffset(a: Offset, b: Offset, t: Float): Offset =
-    Offset(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t)
