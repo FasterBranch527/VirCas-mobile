@@ -20,9 +20,27 @@ jobs:
           gradle-version: '8.11.1'
       - name: Unit tests
         run: gradle testDebugUnitTest --stacktrace
+      - name: Compile debug and instrumentation APKs
+        run: gradle assembleDebug assembleDebugAndroidTest --stacktrace
       - name: Assemble signed release APK
         run: gradle assembleRelease --stacktrace
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vircas-test-reports
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+          if-no-files-found: warn
       - uses: actions/upload-artifact@v4
         with:
           name: vircas-release-apk
           path: app/build/outputs/apk/release/app-release.apk
+      - name: Upload debug and instrumentation APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: vircas-debug-test-apks
+          path: |
+            app/build/outputs/apk/debug/*.apk
+            app/build/outputs/apk/androidTest/debug/*.apk
