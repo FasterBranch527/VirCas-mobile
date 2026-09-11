@@ -4,8 +4,11 @@ import android.content.Context
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.preferencesDataStore
+import com.vircas.mobile.core.game.RoundProgressSink
+import com.vircas.mobile.core.game.WagerRecord
 import java.time.LocalDate
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -63,7 +66,7 @@ data class DailyMission(
     val complete: Boolean get() = progress >= target
 }
 
-class ProgressionRepository(private val context: Context) {
+class ProgressionRepository(private val context: Context) : RoundProgressSink {
     private object Keys {
         val xp = intPreferencesKey("xp")
         val gamesPlayed = intPreferencesKey("games_played")
@@ -84,6 +87,7 @@ class ProgressionRepository(private val context: Context) {
         val dailyDistinctGames = stringPreferencesKey("daily_distinct_games")
         val claimedMissions = stringPreferencesKey("claimed_missions")
         val claimedAchievements = stringPreferencesKey("claimed_achievements")
+        val recordedRoundIds = stringSetPreferencesKey("recorded_round_ids")
     }
 
     val progress: Flow<UserProgress> = context.progressionDataStore.data.map { p ->
@@ -112,10 +116,22 @@ class ProgressionRepository(private val context: Context) {
         )
     }
 
-    suspend fun recordGame(game: String, stake: Long, payout: Long, xpReward: Int = 20) {
+    override suspend fun recordSettledRound(record: WagerRecord) {
+        recordGame(record.game, record.stake, record.payout, roundId = record.id)
+    }
+
+    override suspend fun resetRoundProgress() { reset() }
+
+    suspend fun recordGame(game: String, stake: Long, payout: Long, xpReward: Int = 20, roundId: String? = null) {
         require(stake >= 0L && payout >= 0L)
         val today = LocalDate.now().toEpochDay()
         context.progressionDataStore.edit { p ->
+            // Persist the deduplication marker in the same edit as all counters and XP.
+            if (roundId != null) {
+                val recorded = p[Keys.recordedRoundIds].orEmpty()
+                if (roundId in recorded) return@edit
+                p[Keys.recordedRoundIds] = recorded + roundId
+            }
             resetDailyIfNeeded(p, today)
             val won = payout > stake
             val lost = payout < stake
@@ -134,6 +150,8 @@ class ProgressionRepository(private val context: Context) {
                 p[Keys.winStreak] = 0
             }
             p[Keys.dailyGames] = (p[Keys.dailyGames] ?: 0) + 1
+            if (roundId != null && game == "Cases") p[Keys.dailyCases] = (p[Keys.dailyCases] ?: 0) + 1
+            if (roundId != null && game.startsWith("Virtual ")) p[Keys.dailyBets] = (p[Keys.dailyBets] ?: 0) + 1
             val distinct = decodeSet(p[Keys.dailyDistinctGames].orEmpty()).toMutableSet().apply { add(game) }
             p[Keys.dailyDistinctGames] = encodeSet(distinct)
             val counts = decodeCounts(p[Keys.gameCounts].orEmpty()).toMutableMap()

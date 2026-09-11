@@ -53,14 +53,15 @@ interface FairnessRoundDao {
 }
 
 @Database(
-    entities = [GameHistoryEntity::class, InventoryItemEntity::class, FairnessRoundEntity::class],
-    version = 3,
+    entities = [GameHistoryEntity::class, InventoryItemEntity::class, FairnessRoundEntity::class, WalletRow::class, WagerRow::class],
+    version = 4,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun gameHistoryDao(): GameHistoryDao
     abstract fun inventoryDao(): InventoryDao
     abstract fun fairnessRoundDao(): FairnessRoundDao
+    abstract fun ledgerDao(): LedgerDao
 }
 
 class GameHistoryRepository(private val dao: GameHistoryDao) {
