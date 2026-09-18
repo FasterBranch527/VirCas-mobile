@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "VirCas"
 include(":app")
+include(":desktopApp")
