@@ -28,3 +28,28 @@ Work continues on `astra/vircas-new`, not on `main`.
 The branch includes the transactional wager ledger and retained-state groundwork. The latest continuation connects the recovery/error gate and makes failed checkpoint acknowledgements wait for successful retry without letting settlement overtake them. Remaining game-screen integrations, migration/process-death testing and actual Android CI results are still required. **This branch is not a verified release.**
 
 Gameplay probabilities, prices, signing keys and penny physics are unchanged by this stabilization work.
+
+
+## macOS desktop port
+
+The macOS port lives in the `desktopApp` module and is built with Compose Desktop.
+
+Requirements:
+- macOS
+- JDK 17
+- Gradle 8.11.1
+
+Run locally:
+```bash
+gradle :desktopApp:run
+```
+
+Build a DMG:
+```bash
+gradle :desktopApp:packageDmg
+```
+
+Output:
+`desktopApp/build/compose/binaries/main/dmg/`
+
+Desktop saves are local to `~/.vircas`. The Android app and its storage remain unchanged. Android-only rendering such as SceneView is replaced by desktop-native Compose presentation on macOS.
