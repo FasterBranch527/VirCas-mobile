@@ -267,7 +267,7 @@ private fun GamesPage(onGame: (DesktopGame) -> Unit) {
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            items(desktopGames, key = { it.id }) { game ->
+            gridItems(desktopGames, key = { it.id }) { game ->
                 GameCard(game, Modifier.fillMaxWidth(), onClick = { onGame(game) })
             }
         }
