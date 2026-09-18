@@ -23,7 +23,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Dmg)
             packageName = "VirCas"
-            packageVersion = "0.2.0"
+            packageVersion = "1.0.0"
             description = "Offline-only VirCas virtual gaming hub for macOS"
             vendor = "VirCas"
             macOS {
